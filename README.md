@@ -2,7 +2,7 @@
 
 本分支以 Dopamine **3.0.10** 为基础，移植 RootHide **2.4.9.27** 的目录隔离、按 App 隐藏和系统服务适配代码。目标测试设备为 **iPhone XR / A12 / iOS 18.3 / 22D60**。
 
-**这是实验移植，不是官方 RootHide 3 发布版。第一版触发了 launchd 重启，port.2 暴露了私有消息分发问题，port.3 又暴露了 dyld UUID 长度错误。port.4 正在修复该问题，成功激活和银行 App 隐藏效果仍未验证。** 已知验证缺口见 [PORTING.md](PORTING.md)，本次诊断见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。
+**这是实验移植，不是官方 RootHide 3 发布版。第一版触发了 launchd 重启，port.2 暴露了私有消息分发问题，port.3 暴露了 dyld UUID 长度和 arm64e 包架构问题。port.5 正在修复包架构问题，成功激活和银行 App 隐藏效果仍未验证。** 已知验证缺口见 [PORTING.md](PORTING.md)，本次诊断见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。
 
 [修订版 port.3 构建与 IPA 附件](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36304375327)，对应源码提交 `9720b07d63c6d699ab8996b6dedd60af055363b1`。
 

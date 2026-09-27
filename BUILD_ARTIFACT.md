@@ -49,3 +49,6 @@ IPA 本体与整个 Actions 附件 ZIP 的哈希不同，不能混用。对 IPA 
 已通过完整编译、iOS ABI 检查和真实 macOS libxpc 消息回归测试。IPA 已签名安装，设备记录确认
 `CFBundleVersion=3`；安装后 Developer Mode 需要在手机上重新开启。设备日志显示
 loader 错误 2，原因及 port.4 修复见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。
+
+port.3 的最终 Bootstrap 步骤还显示 Sileo 的 `iphoneos-arm64` 包与设备的
+`iphoneos-arm64e` 不匹配。port.5 换用 RootHide arm64e Sileo/Zebra 资源，尚待构建和设备安装验证。
