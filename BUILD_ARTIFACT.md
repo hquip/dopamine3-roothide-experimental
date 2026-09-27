@@ -42,3 +42,9 @@ App 根目录、basebin、momentarius、Titan 内四份 libjailbreak 的两架�
 IPA 本体与整个 Actions 附件 ZIP 的哈希不同，不能混用。对 IPA 重新签名后，IPA 哈希也会改变。
 
 这份第一版产物后来已在目标 iPhone XR / iOS 18.3 上签名安装，但实际激活触发了 launchd GUARD 异常和整机重启，不能作为可用发行包。哈希保留用于追溯失败版本；已定位的问题与修订版范围见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。重启恢复及银行 App 隐藏效果仍未验证。
+
+## 修订版 port.3
+
+提交 `9720b07d63c6d699ab8996b6dedd60af055363b1` 的[云端构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36304375327)
+已通过完整编译、iOS ABI 检查和真实 macOS libxpc 消息回归测试。IPA 已签名安装，设备记录确认
+`CFBundleVersion=3`；安装后 Developer Mode 需要在手机上重新开启，尚未执行激活。

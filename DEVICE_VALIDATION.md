@@ -62,5 +62,6 @@ arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 p
 修订版 port.2 的[云端构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36301032194)
 已通过；其产物的两架构、三个入口版本分支已在内存中静态核对，四份内置 libjailbreak
 副本的 UUID/代码一致且已更新。设备安装记录确认构建号 2，但它仍在第二次激活时
-触发了上述 `SIGABRT`。port.3 的完整构建、消息回归测试和设备验证尚待完成。
+触发了上述 `SIGABRT`。port.3 的完整构建和消息回归测试已经通过，IPA 已签名安装到设备并
+核对构建号 3；安装后只读状态显示 DeveloperModeStatus=false，尚未点击“越狱”。
 修订版源码提交、哈希及检查范围见 [BUILD_ARTIFACT.md](BUILD_ARTIFACT.md)。

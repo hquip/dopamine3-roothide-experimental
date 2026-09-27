@@ -37,10 +37,10 @@
 | XPF 补丁与固定基线 | 使用 `scripts/prepare_port.py` 复核 |
 | XPF 的两个补丁源文件 | Windows Clang 21.1.8 + 真实 iOS 16.5 SDK，arm64 交叉语法检查通过 |
 | 新旧协议尺寸及函数签名 | 同一真实 SDK 下 arm64、arm64e 的 `tests/protocol_abi.c` 检查通过；不是完整 Xcode 构建 |
-| macOS/Xcode 完整构建 | 修订版第四轮云端构建成功，源码提交 `f89ab7f`，运行编号 `36301032194` |
+| macOS/Xcode 完整构建 | port.3 云端构建成功，源码提交 `9720b07`，运行编号 `36304375327`；macOS libxpc 回归测试通过 |
 | IPA 生成及 Xcode 设备 SDK 协议检查 | 已通过，arm64、arm64e 均通过 `-Werror` 编译期检查 |
-| IPA 签名与安装 | 修订版已签名安装，设备记录确认构建号为 2 |
-| XR / iOS 18.3 越狱、重启、卸载 | 第一版激活时触发 launchd GUARD 异常和整机重启；修订版成功激活尚待验证，见 DEVICE_VALIDATION.md |
+| IPA 签名与安装 | port.3 已签名安装，设备记录确认构建号为 3；安装后需重新开启开发者模式 |
+| XR / iOS 18.3 越狱、重启、卸载 | 第一版触发 launchd GUARD，port.2 触发 jailbreakd 消息 `SIGABRT`；port.3 尚未激活，见 DEVICE_VALIDATION.md |
 | 任意银行 App 的隐藏效果 | 尚未测试 |
 
 ## 仍需验证的关键问题
