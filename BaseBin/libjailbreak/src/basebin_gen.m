@@ -148,7 +148,15 @@ int basebin_generate_internal(NSString *originUsrLibPath, NSString *basebinPath,
 
 	carbonCopy(dyldOrigPath, dyldInflightPath);
 
-	NSString *dyldUUIDPrefix = [@"DOPA" stringByAppendingString:dopamineVersion];
+	// LC_UUID contains exactly 16 bytes. The experimental port version also
+	// carries a descriptive suffix, so do not write the full `.version` value
+	// into the UUID. Keep the semantic release visible while leaving one byte
+	// for the terminating NUL required by apply_dyld_patch().
+	NSString *uuidVersion = [[dopamineVersion componentsSeparatedByString:@"-"] firstObject];
+	NSString *dyldUUIDPrefix = [@"DOPA" stringByAppendingString:(uuidVersion ?: @"")];
+	if (dyldUUIDPrefix.length >= sizeof(uuid_t)) {
+		dyldUUIDPrefix = [dyldUUIDPrefix substringToIndex:sizeof(uuid_t) - 1];
+	}
 	if (apply_dyld_patch(dyldInflightPath, dyldUUIDPrefix.UTF8String) != 0) return 2;
 	if (merge_dyldhook(dyldInflightPath, dyldhookMergeDylibPath, dyldInflightPath) != 0) return 3;
 	if (resign_file(dyldInflightPath, @"com.apple.dyld", YES) != 0) return 4;
