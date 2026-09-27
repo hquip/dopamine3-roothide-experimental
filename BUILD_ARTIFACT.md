@@ -52,3 +52,5 @@ loader 错误 2，原因及 port.4 修复见 [DEVICE_VALIDATION.md](DEVICE_VALID
 
 port.3 的最终 Bootstrap 步骤还显示 Sileo 的 `iphoneos-arm64` 包与设备的
 `iphoneos-arm64e` 不匹配。port.5 换用 RootHide arm64e Sileo/Zebra 资源，尚待构建和设备安装验证。
+
+port.6 在 port.5 基础上加入 jailbreakd exec-patch deadlock 修复，尚待构建和设备验证。

@@ -6,7 +6,7 @@
 表现为出现 Apple 标志并整机重启。port.2 修复该问题后，第二次测试又触发了
 `launchd` 的 `SIGABRT`。port.3 随后又在 RootHide loader 生成阶段报错 2，
 原因是完整实验版本串超过 Mach-O UUID 的 16 字节限制。当前修订版标识为
-`3.0.10-roothide-port.5`。
+`3.0.10-roothide-port.6`。
 
 ## 证据
 
@@ -59,6 +59,11 @@ port.5 替换了内置 Sileo/Zebra 包为 RootHide arm64e 资源；port.3 的日
 声明 `iphoneos-arm64`，而设备 dpkg 使用 `iphoneos-arm64e`，因此 Sileo 在最后安装阶段
 被拒绝。构建检查现在固定校验这两个 arm64e 包的哈希。
 
+设备之后出现多份 `watchdog timeout: no checkins from watchdogd` 报告。port.6
+移植 RootHide 公开的 jailbreakd deadlock 修复：exec-patch start/cancel 在独立串行队列处理，
+launchd 的 child-patch 请求增加 10 秒超时，避免 `launchd → jailbreakd → spawnExecPatchAdd`
+同步等待把系统 watchdog 卡死。
+
 修订源码已通过现有 `scripts/check_port.py` 和 `git diff --check`；修改过的
 Objective-C 文件使用 Windows Clang 21.1.8 与真实 iPhoneOS 16.5 SDK，分别对
 arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 pause 返回值的唯一
@@ -73,5 +78,5 @@ arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 p
 副本的 UUID/代码一致且已更新。设备安装记录确认构建号 2，但它仍在第二次激活时
 触发了上述 `SIGABRT`。port.3 的完整构建和消息回归测试已经通过，IPA 已签名安装到设备并
 核对构建号 3；设备日志随后显示 loader 错误 2。port.4 尚待完整构建和设备安装验证，
-当前设备仍未安装 port.5，尚未再次点击“越狱”。
+当前设备仍未安装 port.6，尚未再次点击“越狱”。
 修订版源码提交、哈希及检查范围见 [BUILD_ARTIFACT.md](BUILD_ARTIFACT.md)。
