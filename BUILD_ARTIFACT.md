@@ -16,4 +16,4 @@
 
 IPA 本体与整个 Actions 附件 ZIP 的哈希不同，不能混用。对 IPA 重新签名后，IPA 哈希也会改变。
 
-这个产物尚未在目标 iPhone XR / iOS 18.3 上安装或执行。签名安装、实际越狱、重启恢复及银行 App 隐藏效果仍需验证；完成云端构建并不替代这些设备测试。
+这份第一版产物后来已在目标 iPhone XR / iOS 18.3 上签名安装，但实际激活触发了 launchd GUARD 异常和整机重启，不能作为可用发行包。哈希保留用于追溯失败版本；已定位的问题与修订版范围见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。重启恢复及银行 App 隐藏效果仍未验证。

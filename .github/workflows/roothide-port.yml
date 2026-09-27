@@ -91,6 +91,7 @@ jobs:
             .port-build/logs/
             .ci/dependencies.json
             PORTING.md
+            DEVICE_VALIDATION.md
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

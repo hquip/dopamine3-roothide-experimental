@@ -39,8 +39,8 @@
 | 新旧协议尺寸及函数签名 | 同一真实 SDK 下 arm64、arm64e 的 `tests/protocol_abi.c` 检查通过；不是完整 Xcode 构建 |
 | macOS/Xcode 完整构建 | 第三轮云端构建已成功，源码提交 `308ca31`，运行编号 `36292486926` |
 | IPA 生成及 Xcode 设备 SDK 协议检查 | 已通过，arm64、arm64e 均通过 `-Werror` 编译期检查 |
-| IPA 签名与安装 | 尚未执行 |
-| XR / iOS 18.3 越狱、重启、卸载 | 尚未测试 |
+| IPA 签名与安装 | 第一版已签名安装并通过设备安装记录核对 |
+| XR / iOS 18.3 越狱、重启、卸载 | 第一版激活时触发 launchd GUARD 异常和整机重启；修订版待验证，见 DEVICE_VALIDATION.md |
 | 任意银行 App 的隐藏效果 | 尚未测试 |
 
 ## 仍需验证的关键问题

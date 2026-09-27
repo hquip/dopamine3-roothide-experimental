@@ -19,3 +19,5 @@
 这些检查没有执行手机内核写入、越狱程序或设备安装。相关 App/CLI 的 6 种 Objective-C 头文件配置，以及精简 CLI 的 4 个源文件也已完成真实 SDK 的交叉语法检查；实际工具版本、源码提交、IPA 校验值和构建日志随 Actions 产物保存。
 
 设备上的 vnode/namecache 布局、远程 dyld/PAC、预编译依赖、重启与卸载，以及任何银行 App 的检测结果，仍需验证。详细清单见 [PORTING.md](PORTING.md)。
+
+首次真机激活已发现并定位 crash reporter 的系统版本判断遗漏：三份 panic 的镜像 UUID、函数符号和调用指令均匹配第一版产物。修订版恢复上游 iOS 17+ 不注册该自定义异常处理器的行为；诊断与验证边界见 [DEVICE_VALIDATION.md](DEVICE_VALIDATION.md)。
