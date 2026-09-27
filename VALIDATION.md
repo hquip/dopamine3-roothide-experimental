@@ -1,6 +1,6 @@
 # 第一版源码验证记录
 
-这是源码与编译期检查记录，不代表完整应用构建成功或手机兼容性通过。
+这是源码、云端构建与编译期检查记录，不代表手机兼容性或越狱隐藏效果通过。
 
 已完成：
 
@@ -14,6 +14,8 @@
 
 协议测试中的旧版期望值经过独立交叉核对：使用未修改的 RootHide tag 27 `jbserver.h` / `signatures.h` 及其固定 ChOma 头文件，而非从当前移植结构自我推导。两种架构下，真实 SDK 的 `fsignatures_t` 为 56 字节、`siginfo` 为 64 字节、旧 trust 请求为 120 字节。测试覆盖扩展签名字段，避免只按三个基础字段估算旧 ABI。
 
-这些检查没有执行内核写入、越狱程序或手机安装，也没有完成完整应用链接和 IPA 打包。[第二轮 GitHub macOS 构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36291651497) 已通过全部依赖准备，在源码编译处暴露旧 CLI、条件编译与 SDK 声明差异；对应代码已修正。随后对相关 App/CLI 的 6 种 Objective-C 头文件配置，以及精简 CLI 的 4 个源文件进行真实 SDK 交叉语法检查，均通过。下一轮云端构建将验证完整链接、打包与 Xcode 设备 SDK 的协议布局，并保存实际工具版本与日志。
+[第三轮 GitHub macOS 构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36292486926) 已成功，源码提交为 `308ca31ac9fe4a03ecd98d12862e510ec79e1f89`。完整应用编译、链接、IPA 打包和 Xcode 设备 SDK 的 arm64/arm64e 协议检查全部通过，产物为 `experimental-roothide-port-3`。这次成功构建验证了此前修正的宿主 SDK、共享 bootstrap、CLI 及旧组件 SDK 问题。
+
+这些检查没有执行手机内核写入、越狱程序或设备安装。相关 App/CLI 的 6 种 Objective-C 头文件配置，以及精简 CLI 的 4 个源文件也已完成真实 SDK 的交叉语法检查；实际工具版本、源码提交、IPA 校验值和构建日志随 Actions 产物保存。
 
 设备上的 vnode/namecache 布局、远程 dyld/PAC、预编译依赖、重启与卸载，以及任何银行 App 的检测结果，仍需验证。详细清单见 [PORTING.md](PORTING.md)。
