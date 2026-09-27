@@ -6,6 +6,8 @@
 
 [已成功的构建与 IPA 附件](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36292486926)，对应源码提交 `308ca31ac9fe4a03ecd98d12862e510ec79e1f89`。
 
+下载后的版本、组件和哈希已核验，见 [构建产物记录](BUILD_ARTIFACT.md)。
+
 ## 在 Windows 上使用 GitHub 构建
 
 1. 将此分支的全部源码提交到自己的 GitHub 仓库，保留 `.github`、`.gitmodules`、`patches`、`scripts` 和内置资源。
