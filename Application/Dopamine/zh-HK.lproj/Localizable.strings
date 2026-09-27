@@ -123,3 +123,6 @@
 "Select_Package_Managers_Install_Message" = "若不確定如何選擇，請使用 Sileo";
 "Continue" = "繼續";
 
+
+"Experimental_RootHide_Port" = "實驗移植，尚未驗證";
+"Experimental_RootHide_Port_Details" = "基於 Dopamine 3.0.10 的 RootHide 實驗移植。裝置相容性和越獄偵測隱藏效果尚未驗證，此版本已停用線上更新。";

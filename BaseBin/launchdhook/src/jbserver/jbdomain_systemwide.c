@@ -14,11 +14,16 @@
 #include <libjailbreak/codesign.h>
 #include <libjailbreak/txm.h>
 
+#include <signal.h>
+#include <libjailbreak/roothider.h>
+
+/*
 bool gSystemwideDomainEnabled = true;
 void systemwide_domain_set_enabled(bool enabled)
 {
 	gSystemwideDomainEnabled = enabled;
 }
+*/
 
 extern bool string_has_prefix(const char *str, const char* prefix);
 extern bool string_has_suffix(const char* str, const char* suffix);
@@ -58,6 +63,7 @@ char *combine_strings(char separator, char **components, int count)
 	return outString;
 }
 
+/*
 bool systemwide_domain_allowed(audit_token_t clientToken)
 {
 	if (!gSystemwideDomainEnabled) {
@@ -75,6 +81,7 @@ bool systemwide_domain_allowed(audit_token_t clientToken)
 	}
 	return true;
 }
+*/
 
 static int systemwide_get_jbroot(char **rootPathOut)
 {
@@ -87,6 +94,17 @@ static int systemwide_get_boot_uuid(char **bootUUIDOut)
 	const char *launchdUUID = getenv("LAUNCHD_UUID");
 	*bootUUIDOut = launchdUUID ? strdup(launchdUUID) : NULL;
 	return 0;
+}
+
+static int roothide_prepare_file_signature(const char *path, int pid, int fd, struct siginfo *siginfo)
+{
+	CS_SuperBlob *superblob = siginfo_resolve_superblob(siginfo, pid, fd);
+	if (!superblob) return -1;
+	cdhash_t cdhash;
+	bool needsRandomization = code_signature_calculate_adhoc_cdhash(superblob, cdhash) && !is_cdhash_trustcached(cdhash);
+	free(superblob);
+	if (!needsRandomization) return 0;
+	return ensure_randomized_cdhash_for_slice(path, siginfo->signature.fs_file_start, cdhash);
 }
 
 int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *siginfo, size_t siginfoSize, bool attach)
@@ -114,7 +132,7 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 	int fsr = fstatfs(fd, &fsb);
 	if (fsr == 0) {
 		// Anything on the rootfs or fakelib mount point can be ignored as it's guaranteed to already be in trustcache
-		if (!strcmp(fsb.f_mntonname, "/") || !strcmp(fsb.f_mntonname, "/usr/lib")) {
+		if (!strcmp(fsb.f_mntonname, "/") /*|| !strcmp(fsb.f_mntonname, "/usr/lib")*/) {
 			close(fd);
 			return 0;
 		}
@@ -123,13 +141,51 @@ int systemwide_trust_file(audit_token_t *processToken, int rfd, struct siginfo *
 	struct siginfo *sigInfos = NULL;
 	uint32_t sigInfoCount = 0;
 	int r = 0;
+	char filePath[PATH_MAX];
+	if (fcntl(fd, F_GETPATH, filePath) != 0) {
+		close(fd);
+		return -1;
+	}
+	if (string_has_prefix(filePath, "/private/preboot/Cryptexes/") ||
+		(isRemovableBundlePath(filePath) && !hasTrollstoreLiteMarker(filePath))) {
+		close(fd);
+		return 0;
+	}
 
 	if (siginfo) {
+		// Only a file-backed signature may be reread after changing its file.
+		// PROC / ALLOCATION signatures can differ from the on-disk signature;
+		// retain Dopamine's in-memory trust and attachment semantics for them.
+		if (siginfo->source == SIGNATURE_SOURCE_FILE) {
+			r = roothide_prepare_file_signature(filePath, pid, fd, siginfo);
+			if (r != 0) {
+				close(fd);
+				return r;
+			}
+		}
 		sigInfoCount = 1;
 		sigInfos = malloc(sizeof(struct siginfo));
+		if (!sigInfos) {
+			close(fd);
+			return -1;
+		}
 		memcpy(&sigInfos[0], siginfo, sizeof(struct siginfo));
 	}
 	else {
+		// Prepare signatures before taking the copies that trust_signatures uses.
+		// Reusing pre-randomization copies would trust the old code directory.
+		struct siginfo *originalSignatures = NULL;
+		uint32_t originalSignatureCount = 0;
+		file_collect_signatures(fd, &originalSignatures, &originalSignatureCount);
+		for (uint32_t i = 0; i < originalSignatureCount; i++) {
+			if (r == 0) r = roothide_prepare_file_signature(filePath, pid, fd, &originalSignatures[i]);
+			free(originalSignatures[i].signature.fs_blob_start);
+		}
+		free(originalSignatures);
+		if (r != 0) {
+			close(fd);
+			return r;
+		}
 		file_collect_signatures(fd, &sigInfos, &sigInfoCount);
 	}
 
@@ -193,6 +249,7 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	systemwide_get_jbroot(rootPathOut);
 	systemwide_get_boot_uuid(bootUUIDOut);
 
+/*
 	// Generate sandbox extensions for the requesting process
 	char *sandboxExtensionsArr[] = {
 		// Make /var/jb readable and executable
@@ -212,6 +269,23 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 
 	bool fullyDebugged = false;
 	if (string_has_prefix(procPath, "/private/var/containers/Bundle/Application") || string_has_prefix(procPath, JBROOT_PATH("/Applications"))) {
+*/
+
+/************************************ roothide specific ************************************************/
+	uint32_t csflags = 0;
+    csops(pid, CS_OPS_STATUS, &csflags, sizeof(csflags));
+	bool isPlatformProcess = (csflags & CS_PLATFORM_BINARY) != 0;
+
+	// Generate sandbox extensions for the requesting process
+	*sandboxExtensionsOut = generate_sandbox_extensions(processToken, isPlatformProcess);
+	if(!(*sandboxExtensionsOut)) {
+		JBLogError("Failed to generate sandbox extensions for process %d", pid);
+	}
+
+	bool fullyDebugged = false;
+	if (isRemovableBundlePath(procPath) || isSubPathOf(procPath, JBROOT_PATH("/Applications"))) {
+/*************************************** roothide specific *********************************/
+
 		// This is an app, enable CS_DEBUGGED based on user preference
 		if (jbsetting(markAppsAsDebugged)) {
 			fullyDebugged = true;
@@ -293,6 +367,10 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	else if (is_dopamine_app(procPath)) {
 		// platformize
 		proc_csflags_set(proc, CS_PLATFORM_BINARY);
+
+/********************* roothide specific ********************/
+		proc_csflags_set(proc, CS_INSTALLER);
+/*************************************************************/
 	}
 
 	xpc_object_t customTrustObj = xpc_copy_entitlement_for_token("jb.pmap_cs.custom_trust", processToken);
@@ -534,7 +612,7 @@ static int systemwide_persona_fix(audit_token_t *callerToken, int childPid, uid_
 }
 
 struct jbserver_domain gSystemwideDomain = {
-	.permissionHandler = systemwide_domain_allowed,
+	.permissionHandler = roothide_domain_allowed,
 	.actions = {
 		// JBS_SYSTEMWIDE_GET_JBROOT
 		{

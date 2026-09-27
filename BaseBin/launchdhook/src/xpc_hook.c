@@ -21,7 +21,8 @@ int xpc_receive_mach_msg_hook(void *msg, void *a2, void *a3, void *a4, xpc_objec
 	bool wasProcessed = false;
     if (jbsMachMsg != NULL && msgBufSize >= sizeof(mach_msg_header_t)) {
         size_t msgSize = jbsMachMsg->hdr.msgh_size;
-        if (msgSize <= msgBufSize && msgSize >= sizeof(struct jbserver_mach_msg) && jbsMachMsg->magic == JBSERVER_MACH_MAGIC) {
+        if (msgSize <= msgBufSize && msgSize >= sizeof(struct jbserver_mach_msg) &&
+            (jbsMachMsg->magic == JBSERVER_MACH_MAGIC_LEGACY || jbsMachMsg->magic == JBSERVER_MACH_MAGIC_V3)) {
 			mach_msg_context_trailer_t *trailer = (mach_msg_context_trailer_t *)((uint8_t *)jbsMachMsg + round_msg(jbsMachMsg->hdr.msgh_size));
             jbserver_received_mach_message(&trailer->msgh_audit, jbsMachMsg);
 			wasProcessed = true;

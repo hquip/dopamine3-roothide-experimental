@@ -1,3 +1,4 @@
+#include <libjailbreak/roothider.h>
 #include <libjailbreak/jbserver.h>
 #include <mach/mach.h>
 #include <bsm/audit.h>
@@ -44,11 +45,15 @@ int jbserver_send_mach_reply(mach_msg_header_t *hdr, void *replyData)
 
 int jbserver_received_mach_message(audit_token_t *auditToken, struct jbserver_mach_msg *jbsMachMsg)
 {
+	bool legacy = jbsMachMsg->magic == JBSERVER_MACH_MAGIC_LEGACY;
+	if (!legacy && jbsMachMsg->magic != JBSERVER_MACH_MAGIC_V3) return -1;
+	JBLogDebug("jbserver received mach message(%d) from (%d) %s", jbsMachMsg->action, audit_token_to_pid(*auditToken), proc_get_path(audit_token_to_pid(*auditToken),NULL));
+
 	int r = -1;
 
 	// Anything implemented by the mach server is provided systemwide
 	// So we also need to honor the allowed handler of the systemwide domain
-	if (!systemwide_domain_allowed(*auditToken)) return -1;
+	if (!roothide_domain_allowed(*auditToken)) return -1;
 
 	uint64_t msgSize = jbsMachMsg->hdr.msgh_size;
 	void *replyData = NULL;
@@ -57,33 +62,40 @@ int jbserver_received_mach_message(audit_token_t *auditToken, struct jbserver_ma
 		if (msgSize < sizeof(struct jbserver_mach_msg_checkin)) return -1;
 		struct jbserver_mach_msg_checkin *checkinMsg = (struct jbserver_mach_msg_checkin *)jbsMachMsg;
 
-		size_t replySize = sizeof(struct jbserver_mach_msg_checkin_reply);
-		replyData = malloc(replySize);
-		struct jbserver_mach_msg_checkin_reply *reply = (struct jbserver_mach_msg_checkin_reply *)replyData;
-		memset(reply, 0, replySize);
+		size_t replySize = legacy ? sizeof(struct jbserver_mach_msg_checkin_reply_legacy) : sizeof(struct jbserver_mach_msg_checkin_reply);
+		replyData = calloc(1, replySize);
+		if (!replyData) return -1;
 		
 		char *jbRootPath = NULL, *bootUUID = NULL, *sandboxExtensions = NULL;
-		bool fullyDebugged = false;
-		int result = systemwide_process_checkin(auditToken, &jbRootPath, &bootUUID, &sandboxExtensions, &reply->fullyDebugged, &reply->forceCSAdhoc);
+		bool fullyDebugged = false, forceCSAdhoc = false;
+		int result = systemwide_process_checkin(auditToken, &jbRootPath, &bootUUID, &sandboxExtensions, &fullyDebugged, &forceCSAdhoc);
 
-		reply->base.msg.magic         = jbsMachMsg->magic;
-		reply->base.msg.action        = jbsMachMsg->action;
-		reply->base.msg.hdr.msgh_size = replySize;
+		struct jbserver_mach_msg_reply *base = replyData;
+		base->msg.magic         = jbsMachMsg->magic;
+		base->msg.action        = jbsMachMsg->action;
+		base->msg.hdr.msgh_size = replySize;
+		base->status           = result;
 
-		if (jbRootPath) {
-			strlcpy(reply->jbRootPath, jbRootPath, sizeof(reply->jbRootPath));
-			free(jbRootPath);
+		// The extra V3 flag shifts every string by one byte. Select the reply
+		// layout by protocol magic even when the request sizes are identical.
+		if (legacy) {
+			struct jbserver_mach_msg_checkin_reply_legacy *reply = replyData;
+			reply->fullyDebugged = fullyDebugged;
+			if (jbRootPath) strlcpy(reply->jbRootPath, jbRootPath, sizeof(reply->jbRootPath));
+			if (bootUUID) strlcpy(reply->bootUUID, bootUUID, sizeof(reply->bootUUID));
+			if (sandboxExtensions) strlcpy(reply->sandboxExtensions, sandboxExtensions, sizeof(reply->sandboxExtensions));
 		}
-		if (bootUUID) {
-			strlcpy(reply->bootUUID, bootUUID, sizeof(reply->bootUUID));
-			free(bootUUID);
+		else {
+			struct jbserver_mach_msg_checkin_reply *reply = replyData;
+			reply->fullyDebugged = fullyDebugged;
+			reply->forceCSAdhoc = forceCSAdhoc;
+			if (jbRootPath) strlcpy(reply->jbRootPath, jbRootPath, sizeof(reply->jbRootPath));
+			if (bootUUID) strlcpy(reply->bootUUID, bootUUID, sizeof(reply->bootUUID));
+			if (sandboxExtensions) strlcpy(reply->sandboxExtensions, sandboxExtensions, sizeof(reply->sandboxExtensions));
 		}
-		if (sandboxExtensions) {
-			strlcpy(reply->sandboxExtensions, sandboxExtensions, sizeof(reply->sandboxExtensions));
-			free(sandboxExtensions);
-		}
-
-		reply->base.status = result;
+		free(jbRootPath);
+		free(bootUUID);
+		free(sandboxExtensions);
 		r = 0;
 	}
 	else if (jbsMachMsg->action == JBSERVER_MACH_FORK_FIX) {
@@ -105,15 +117,29 @@ int jbserver_received_mach_message(audit_token_t *auditToken, struct jbserver_ma
 		r = 0;
 	}
 	else if (jbsMachMsg->action == JBSERVER_MACH_TRUST_FILE) {
-		if (msgSize < sizeof(struct jbserver_mach_msg_trust_fd)) return -1;
-		struct jbserver_mach_msg_trust_fd *trustMsg = (struct jbserver_mach_msg_trust_fd *)jbsMachMsg;
+		size_t requestSize = legacy ? sizeof(struct jbserver_mach_msg_trust_fd_legacy) : sizeof(struct jbserver_mach_msg_trust_fd);
+		if (msgSize < requestSize) return -1;
+		int64_t fd;
+		struct siginfo *siginfo;
+		bool attach = false;
+		if (legacy) {
+			struct jbserver_mach_msg_trust_fd_legacy *trustMsg = (void *)jbsMachMsg;
+			fd = trustMsg->fd;
+			siginfo = trustMsg->siginfoPopulated ? &trustMsg->siginfo : NULL;
+		}
+		else {
+			struct jbserver_mach_msg_trust_fd *trustMsg = (void *)jbsMachMsg;
+			fd = trustMsg->fd;
+			siginfo = trustMsg->siginfoPopulated ? &trustMsg->siginfo : NULL;
+			attach = trustMsg->attach;
+		}
 
 		size_t replySize = sizeof(struct jbserver_mach_msg_trust_fd_reply);
 		replyData = malloc(replySize);
 		struct jbserver_mach_msg_trust_fd_reply *reply = (struct jbserver_mach_msg_trust_fd_reply *)replyData;
 		memset(reply, 0, replySize);
 
-		int result = systemwide_trust_file(auditToken, trustMsg->fd, trustMsg->siginfoPopulated ? &trustMsg->siginfo : NULL, sizeof(struct siginfo), trustMsg->attach);
+		int result = systemwide_trust_file(auditToken, fd, siginfo, sizeof(struct siginfo), attach);
 
 		reply->base.msg.magic         = jbsMachMsg->magic;
 		reply->base.msg.action        = jbsMachMsg->action;
@@ -123,6 +149,7 @@ int jbserver_received_mach_message(audit_token_t *auditToken, struct jbserver_ma
 		r = 0;
 	}
 	else if (jbsMachMsg->action == JBSERVER_MACH_HOOKD_SEND_MSG) {
+		if (legacy) return -1;
 		if (msgSize < sizeof(struct jbserver_mach_msg_hookd_send_msg)) return -1;
 		if (msgSize > (sizeof(struct jbserver_mach_msg_hookd_send_msg) + HOOKD_MSG_MAX_SIZE)) return -1;
 		

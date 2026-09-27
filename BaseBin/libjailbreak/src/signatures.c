@@ -18,6 +18,7 @@
 #include "kernel.h"
 #include "primitives.h"
 #include "codesign.h"
+#include "roothider.h"
 
 bool macho_is_mappable(MachO *macho)
 {
@@ -98,15 +99,24 @@ bool macho_parse_code_signature(MachO *macho, cdhash_t cdhashOut)
 	return isAdhocSigned;
 }
 
-void fat_collect_untrusted_cdhashes(Fat *fat, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
+static void fat_collect_untrusted_cdhashes_internal(Fat *fat, const char *filePath, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
 {
 	__block cdhash_t *cdhashes = NULL;
 	__block uint32_t cdhashCount = 0;
+	__block bool failed = false;
 	fat_enumerate_slices(fat, ^(MachO *macho, bool *stop) {
 		if (macho_is_mappable(macho)) {
 			cdhash_t cdhash;
 			if (macho_parse_code_signature(macho, cdhash)) {
 				if (!is_cdhash_trustcached(cdhash)) {
+					// Only on-disk files can be branded. The public Fat API also
+					// accepts in-memory images and must retain that behavior.
+					if (filePath && ensure_randomized_cdhash_for_slice(filePath, macho->archDescriptor.offset, cdhash) != 0) {
+						JBLogError("Failed to randomize code directory for %s", filePath);
+						failed = true;
+						*stop = true;
+						return;
+					}
 					cdhashCount++;
 					cdhashes = realloc(cdhashes, cdhashCount * sizeof(cdhash_t));
 					memcpy(cdhashes[cdhashCount-1], cdhash, sizeof(cdhash));
@@ -114,13 +124,30 @@ void fat_collect_untrusted_cdhashes(Fat *fat, cdhash_t **cdhashesOut, uint32_t *
 			}
 		}
 	});
+	if (failed) {
+		free(cdhashes);
+		cdhashes = NULL;
+		cdhashCount = 0;
+	}
 
 	*cdhashesOut = cdhashes;
 	*cdhashCountOut = cdhashCount;
 }
 
+void fat_collect_untrusted_cdhashes(Fat *fat, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
+{
+	fat_collect_untrusted_cdhashes_internal(fat, NULL, cdhashesOut, cdhashCountOut);
+}
+
 void file_collect_untrusted_cdhashes(int fd, cdhash_t **cdhashesOut, uint32_t *cdhashCountOut)
 {
+	*cdhashesOut = NULL;
+	*cdhashCountOut = 0;
+	char filePath[PATH_MAX];
+	if (fcntl(fd, F_GETPATH, filePath) != 0) return;
+	if (string_has_prefix(filePath, "/private/preboot/Cryptexes/")) return;
+	if (isRemovableBundlePath(filePath) && !hasTrollstoreLiteMarker(filePath)) return;
+
 	MemoryStream *s = file_stream_init_from_file_descriptor(fd, 0, FILE_STREAM_SIZE_AUTO, 0);
 	if (!s) return;
 
@@ -130,7 +157,7 @@ void file_collect_untrusted_cdhashes(int fd, cdhash_t **cdhashesOut, uint32_t *c
 		return;
 	}
 
-	fat_collect_untrusted_cdhashes(fat, cdhashesOut, cdhashCountOut);
+	fat_collect_untrusted_cdhashes_internal(fat, filePath, cdhashesOut, cdhashCountOut);
 
 	fat_free(fat);
 }
@@ -206,7 +233,7 @@ CS_SuperBlob *siginfo_resolve_superblob(struct siginfo *siginfo, int pid, int fd
 			uintptr_t superblobEnd   = superblobStart + superblobSize;
 			struct stat st = {};
 
-        	if (fstat(fd, &st) != 0) break;
+	if (fstat(fd, &st) != 0) break;
 			if (superblobEnd > st.st_size) break;
 			if (lseek(fd, superblobStart, SEEK_SET) != superblobStart) break;
 			if (read(fd, superblob, superblobSize) != superblobSize) break;
@@ -324,7 +351,7 @@ int trust_signatures(int pid, int fd, struct siginfo *sigInfos, uint32_t sigInfo
 			if (fd_r != 0) r = fd_r;
 		}
 	}
-	
+
 	free(sigInfosToAttach);
 	free(cdhashes);
 	return r;

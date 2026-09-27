@@ -24,6 +24,8 @@
 #include <errno.h>
 extern char **environ;
 
+#include "roothider.h"
+
 #define FAKE_PHYSPAGE_TO_MAP 0x13370000
 
 int posix_spawnattr_set_registered_ports_np(posix_spawnattr_t * __restrict attr, mach_port_t portarray[], uint32_t count);
@@ -167,7 +169,7 @@ uint32_t sptm_frame_get_refcnt_off(uint64_t frame)
 	if (ksymbol(libsptm_frame_type_params)) {
 		uint64_t typeDescriptor = kread64(ksymbol(libsptm_frame_type_params)) + (ksizeof(sptm_frame_type_descriptor) * typeIdx);
 		uint8_t type = kread8(typeDescriptor + koffsetof(sptm_frame_type_descriptor, type));
-		
+
 		if (type == 1) {
 			refcnt_off = koffsetof(sptm_frame, nested_refcnt);
 		}
@@ -291,7 +293,7 @@ void pagetable_set_level(uint64_t pt_pa, uint8_t level)
 }
 
 #define L2_ROUND_DOWN(x) (((vm_address_t)(x)) & (~(L2_BLOCK_SIZE-1)))
-#define L2_ROUND_UP(x) ( (((vm_address_t)(x)) + L2_BLOCK_SIZE-1)  & (~(L2_BLOCK_SIZE-1)) ) 
+#define L2_ROUND_UP(x) ( (((vm_address_t)(x)) + L2_BLOCK_SIZE-1)  & (~(L2_BLOCK_SIZE-1)) )
 
 void *allocate_page_table_range(void)
 {
@@ -333,7 +335,7 @@ uint64_t alloc_page_table_unassigned(void)
 		}
 		// Now, fault in one page to make the kernel allocate the page table for it
 		mlock((void *)free_lvl2, 0x4000);
-	
+
 		// Find the newly allocated page table
 		uint64_t lvl = PMAP_TT_L2_LEVEL;
 		allocatedPT = vtophys_lvl(ttep, (uint64_t)free_lvl2, &lvl, &ttep_lvl2);
@@ -467,7 +469,7 @@ int pmap_expand_range(uint64_t pmap, uint64_t vaStart, uint64_t size)
 
 				// Change type back
 				physwrite8(kvtophys(pmap + koffsetof(pmap, type)), 0);
-				
+
 				unmappedStart = 0;
 				unmappedSize = 0;
 				continue;
@@ -603,7 +605,7 @@ int pmap_map_in_with_flags(uint64_t pmap, uint64_t uaStart, uint64_t paStart, ui
 
 int pmap_map_in(uint64_t pmap, uint64_t uaStart, uint64_t paStart, uint64_t size)
 {
-	return pmap_map_in_with_flags(pmap, uaStart, paStart, size, PERM_TO_PTE(PERM_KRW_URW) | PTE_NON_GLOBAL | PTE_OUTER_SHAREABLE | PTE_LEVEL3_ENTRY);	
+	return pmap_map_in_with_flags(pmap, uaStart, paStart, size, PERM_TO_PTE(PERM_KRW_URW) | PTE_NON_GLOBAL | PTE_OUTER_SHAREABLE | PTE_LEVEL3_ENTRY);
 }
 
 uint64_t pmap_find_main_binary_code_dir(uint64_t pmap)
@@ -858,7 +860,7 @@ int __exec_cmd_internal_va(bool suspended, bool root, bool waitForExit, pid_t *p
 	}
 
 	pid_t spawnedPid = 0;
-	int spawnError = posix_spawn(&spawnedPid, binary, NULL, &attr, (char *const *)argv, envToUse);
+	int spawnError = exec_cmd_roothide_spawn(&spawnedPid, binary, NULL, &attr, (char *const *)argv, envToUse);
 	if (attr) posix_spawnattr_destroy(&attr);
 	if (spawnError != 0) return spawnError;
 
@@ -1021,7 +1023,7 @@ void proc_copy_ucred(uint64_t procCopyFrom, uint64_t procCopyTo)
 	// Every process and every thread holds a lock on both ucred and ucred_rw
 
 	// Since we replace the ucred of procCopyTo, we need to decrement the refcnt of it's original ucred
-	// Then it will be freed by the system as soon as all threads have switched 
+	// Then it will be freed by the system as soon as all threads have switched
 	// to the new ucred via current_cached_proc_cred_update
 	kauth_cred_drop(origUcred);
 	kauth_cred_unref(origUcred);
@@ -1201,7 +1203,7 @@ void killall(const char *executablePath, int signal)
 	struct kinfo_proc *info;
 	size_t length;
 	int count;
-	
+
 	if (sysctl(mib, 3, NULL, &length, NULL, 0) < 0)
 		return;
 	if (!(info = malloc(length)))
@@ -1290,7 +1292,7 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 			strlcat(outputPath, currentFile, PATH_MAX);
 
 			archive_entry_set_pathname(entry, outputPath);
-			
+
 			r = archive_write_header(ext, entry);
 			if (r < ARCHIVE_OK)
 					fprintf(stderr, "%s\n", archive_error_string(ext));
@@ -1311,7 +1313,7 @@ int libarchive_unarchive(const char *fileToExtract, const char *extractionPath)
 	archive_read_free(a);
 	archive_write_close(ext);
 	archive_write_free(ext);
-	
+
 	return 0;
 }
 
@@ -1412,7 +1414,7 @@ int convert_hex_string_to_data(const char *string, void *outBuf)
 char *boot_manifest_hash(void)
 {
 	static char *gBuf = NULL;
-	
+
 	static dispatch_once_t onceToken;
 	dispatch_once(&onceToken, ^{
 		io_registry_entry_t registryEntry = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/chosen");

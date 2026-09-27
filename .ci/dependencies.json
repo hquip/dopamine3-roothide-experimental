@@ -1,0 +1,11 @@
+{
+  "source_base": "1a54e76d515ff5916b64e44d6afbb57d2bc89ee9",
+  "roothide_source": "3824f2731275423c970ff6ed6685957dec269073",
+  "content_merge_base": "36e4760e1f760c3223745132d8c90665002c550a",
+  "xpf_base": "9e12b8faa7444f6fe7f699aec6b6c96d151455d3",
+  "xpf_roothide_reference": "3fb4bb31a0900abfe6e8d88fc5b2df3b726b6722",
+  "theos_commit": "88506b2c22e9e07dd4ed055f23c9e398a117a2c7",
+  "trustcache_commit": "aa0e8847529cf76576fce8d2dbc9e088c8f1a0df",
+  "sdk_url": "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz",
+  "sdk_sha256": "5e0fd3f01266cce4ce012d4a99b38eb56578fca40d09edc81cd83dee958202fb"
+}

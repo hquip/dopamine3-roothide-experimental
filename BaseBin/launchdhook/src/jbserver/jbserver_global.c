@@ -4,6 +4,7 @@ extern struct jbserver_domain gSystemwideDomain;
 extern struct jbserver_domain gPlatformDomain;
 extern struct jbserver_domain gWatchdogDomain;
 extern struct jbserver_domain gRootDomain;
+extern struct jbserver_domain gRootHideDomain;
 extern struct jbserver_domain gDopamineDomain;
 
 struct jbserver_impl gGlobalServer = {
@@ -13,6 +14,7 @@ struct jbserver_impl gGlobalServer = {
 		&gPlatformDomain,
 		&gWatchdogDomain,
 		&gRootDomain,
+		&gRootHideDomain,
 		&gDopamineDomain,
 		NULL,
 	}

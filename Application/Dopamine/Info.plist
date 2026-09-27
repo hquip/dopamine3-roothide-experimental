@@ -21,5 +21,7 @@
 	</dict>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>DORootHidePortVersion</key>
+	<string>3.0.10-roothide-port.1</string>
 </dict>
 </plist>

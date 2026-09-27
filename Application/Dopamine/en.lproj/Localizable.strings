@@ -129,3 +129,6 @@
 "Status_Title_Select_Package_Managers" = "Select Package Manager(s)";
 "Select_Package_Managers_Install_Message" = "If you are unsure which one to select, select Sileo";
 "Continue" = "Continue";
+
+"Experimental_RootHide_Port" = "Experimental, unverified";
+"Experimental_RootHide_Port_Details" = "Experimental RootHide integration on Dopamine 3.0.10. Device compatibility and jailbreak detection behavior have not been verified. Online updates are disabled for this build.";

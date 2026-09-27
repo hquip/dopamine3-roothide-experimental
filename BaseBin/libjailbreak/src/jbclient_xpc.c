@@ -9,6 +9,14 @@
 #include <dlfcn.h>
 #include <os/alloc_once_private.h>
 
+#include "roothider/log.h"
+#ifdef ENABLE_LOGS
+extern void (*XPCLogDebugFunction)(const char *format, ...);
+extern void (*XPCLogErrorFunction)(const char *format, ...);
+#define JBLogDebug(...) do { if(XPCLogDebugFunction)XPCLogDebugFunction(__VA_ARGS__); } while(0)
+#define JBLogError(...) do { if(XPCLogErrorFunction)XPCLogErrorFunction(__VA_ARGS__); } while(0)
+#endif
+
 struct xpc_global_data {
 	uint64_t    a;
 	uint64_t    xpc_flags;
@@ -120,7 +128,12 @@ char *jbclient_get_boot_uuid(void)
 	return (char *)&bootUUID[0];
 }
 
-int jbclient_trust_file(int fd, struct siginfo *siginfo, bool attach)
+int jbclient_trust_file(int fd, struct siginfo *siginfo)
+{
+	return jbclient_trust_file_v3(fd, siginfo, false);
+}
+
+int jbclient_trust_file_v3(int fd, struct siginfo *siginfo, bool attach)
 {
 	xpc_object_t xargs = xpc_dictionary_create_empty();
 	xpc_dictionary_set_uint64(xargs, "fd", (uint64_t)fd);
@@ -143,12 +156,17 @@ int jbclient_trust_file_by_path(const char *path)
 	int fd = open(path, O_RDONLY);
 	if (fd < 0) return -1;
 
-	int r = jbclient_trust_file(fd, NULL, false);
+	int r = jbclient_trust_file_v3(fd, NULL, false);
 	close(fd);
 	return r;
 }
 
-int jbclient_process_checkin(char **rootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut, bool *forceCSAdhocOut)
+int jbclient_process_checkin(char **rootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut)
+{
+	return jbclient_process_checkin_v3(rootPathOut, bootUUIDOut, sandboxExtensionsOut, fullyDebuggedOut, NULL);
+}
+
+int jbclient_process_checkin_v3(char **rootPathOut, char **bootUUIDOut, char **sandboxExtensionsOut, bool *fullyDebuggedOut, bool *forceCSAdhocOut)
 {
 	xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_SYSTEMWIDE, JBS_SYSTEMWIDE_PROCESS_CHECKIN, NULL);
 	if (xreply) {
@@ -334,6 +352,7 @@ int jbclient_platform_jbsettings_set_double(const char *key, double doubleValue)
 	return r;
 }
 
+/*
 int jbclient_platform_set_systemwide_domain_enabled(bool enabled)
 {
 	xpc_object_t xargs = xpc_dictionary_create_empty();
@@ -347,6 +366,7 @@ int jbclient_platform_set_systemwide_domain_enabled(bool enabled)
 	}
 	return -1;
 }
+*/
 
 int jbclient_watchdog_intercept_userspace_panic(const char *panicMessage)
 {
@@ -465,6 +485,7 @@ int jbclient_root_trustcache_info(xpc_object_t *infoOut)
 	return -1;
 }
 
+/*
 int jbclient_root_trustcache_add_cdhash(uint8_t *cdhashData, size_t cdhashLen)
 {
 	xpc_object_t xargs = xpc_dictionary_create_empty();
@@ -478,6 +499,7 @@ int jbclient_root_trustcache_add_cdhash(uint8_t *cdhashData, size_t cdhashLen)
 	}
 	return -1;
 }
+*/
 
 int jbclient_root_trustcache_clear(void)
 {

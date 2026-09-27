@@ -37,9 +37,7 @@
 
 - (BOOL)isUpdateAvailable
 {
-    NSString *latestVersion = [self getLatestReleaseTag];
-    NSString *currentVersion = [self getLaunchedReleaseTag];
-    return [latestVersion numericalVersionRepresentation] > [currentVersion numericalVersionRepresentation];
+    return NO;
 }
 
 - (NSArray *)getUpdatesInRange:(NSString *)start end:(NSString *)end
@@ -68,22 +66,9 @@
 
 - (NSArray *)getLatestReleases
 {
-    static dispatch_once_t onceToken;
-    static NSArray *releases;
-    dispatch_once(&onceToken, ^{
-        NSURL *url = [NSURL URLWithString:@"https://api.github.com/repos/opa334/Dopamine/releases"];
-        NSData *data = [NSData dataWithContentsOfURL:url];
-        if (data) {
-            NSError *error;
-            releases = [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:&error];
-            if (error)
-            {
-                onceToken = 0;
-                releases = @[];
-            }
-        }
-    });
-    return releases;
+    // This experimental integration has no compatible published update channel.
+    // Neither upstream Dopamine nor RootHide 2 packages may replace this build.
+    return @[];
 }
 
 - (BOOL)environmentUpdateAvailable
@@ -94,7 +79,7 @@
     NSString *jailbrokenVersion = [[DOEnvironmentManager sharedManager] jailbrokenVersion];
     NSString *launchedVersion = [self getLaunchedReleaseTag];
     
-    return [launchedVersion numericalVersionRepresentation] > [jailbrokenVersion numericalVersionRepresentation];
+    return [launchedVersion compare:jailbrokenVersion options:NSNumericSearch] == NSOrderedDescending;
 }
 
 - (bool)launchedReleaseNeedsManualUpdate
@@ -127,7 +112,8 @@
 
 - (NSString*)getLaunchedReleaseTag
 {
-    return [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    return [[NSBundle mainBundle] objectForInfoDictionaryKey:@"DORootHidePortVersion"]
+        ?: [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
 }
 
 - (NSArray*)availablePackageManagers

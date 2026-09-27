@@ -58,7 +58,7 @@ void dyldhook_perform_checkin(void)
 
 	// Tell jbserver (in launchd) that this process exists
 	// This will, amongst other things, disable page validation, which allows instruction hooks to be applied later
-	if (jbclient_mach_process_checkin(jbRootPathPtr, bootUUIDPtr, sandboxExtensionsPtr, &jbInfo->fullyDebugged, &jbInfo->forceCSAdhoc) == 0) {
+	if (jbclient_mach_process_checkin_v3(jbRootPathPtr, bootUUIDPtr, sandboxExtensionsPtr, &jbInfo->fullyDebugged, &jbInfo->forceCSAdhoc) == 0) {
 		if (gDyldHookLog) {
 			_simple_dprintf(2, "Performed checkin [%s %s %s]\n", jbRootPathPtr, bootUUIDPtr, sandboxExtensionsPtr);
 		}
@@ -107,6 +107,10 @@ void mach_init_4real(void)
 void dyldhook_init(uintptr_t kernelParams)
 {
 	mach_init_4real();
+
+	extern void dyldhook_init_roothide(uintptr_t);
+	dyldhook_init_roothide(kernelParams);
+
 
 	// If we are in launchd, bail out
 	if (getpid() == 1) {
@@ -202,9 +206,9 @@ void dyldhook_init(uintptr_t kernelParams)
 		if (gDyldHookLog) {
 			_simple_dprintf(2, "Not checking in, DYLD_INSERT_LIBRARIES was not found\n");
 		}
-		return;		
+		return;
 	}
-	if (!strstr(insertLibrariesVar, "/systemhook.dylib")) {
+	if (!strstr(insertLibrariesVar, "/usr/lib/systemhook-") && !strstr(insertLibrariesVar, "/basebin/systemhook.dylib")) {
 		if (gDyldHookLog) {
 			_simple_dprintf(2, "Not checking in, no systemhook found in DYLD_INSERT_LIBRARIES (%s)\n", insertLibrariesVar);
 		}

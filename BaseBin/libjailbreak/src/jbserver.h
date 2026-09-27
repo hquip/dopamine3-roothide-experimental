@@ -50,6 +50,8 @@ extern struct jbserver_impl gGlobalServer;
 int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xmsg);
 
 #define JBSERVER_MACH_MAGIC 0x444F50414D494E45
+#define JBSERVER_MACH_MAGIC_LEGACY JBSERVER_MACH_MAGIC
+#define JBSERVER_MACH_MAGIC_V3 0x444F50414D494E33
 #define JBSERVER_MACH_CHECKIN 0
 #define JBSERVER_MACH_FORK_FIX 1
 #define JBSERVER_MACH_TRUST_FILE 2
@@ -79,6 +81,16 @@ struct jbserver_mach_msg_checkin_reply {
 	char sandboxExtensions[2000];
 };
 
+// RootHide 2 clients embed this layout. The request sizes are identical, so
+// only the distinct request magic can select the correct reply layout.
+struct jbserver_mach_msg_checkin_reply_legacy {
+	struct jbserver_mach_msg_reply base;
+	bool fullyDebugged;
+	char jbRootPath[PATH_MAX];
+	char bootUUID[37];
+	char sandboxExtensions[2000];
+};
+
 struct jbserver_mach_msg_forkfix {
 	struct jbserver_mach_msg base;
 	pid_t childPid;
@@ -94,6 +106,13 @@ struct jbserver_mach_msg_trust_fd {
 	bool siginfoPopulated;
 	struct siginfo siginfo;
 	bool attach;
+};
+
+struct jbserver_mach_msg_trust_fd_legacy {
+	struct jbserver_mach_msg base;
+	int64_t fd;
+	bool siginfoPopulated;
+	struct siginfo siginfo;
 };
 
 struct jbserver_mach_msg_trust_fd_reply {

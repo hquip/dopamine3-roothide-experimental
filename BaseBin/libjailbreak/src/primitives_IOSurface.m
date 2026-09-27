@@ -193,6 +193,15 @@ int IOSurface_map_withCacheMode(uint64_t pa, uint64_t size, void **uaddr, uint32
 
 	IOSurfaceRef mappedSurfaceRef = IOSurfaceLookupFromMachPort(surfaceMachPort);
 	*uaddr = IOSurfaceGetBaseAddress(mappedSurfaceRef);
+
+	// Keep the RootHide mapping out of fork children while retaining Dopamine 3's
+	// cache-mode and IOSurface offset handling.
+	vm_prot_t cur_prot, max_prot;
+	vm_address_t remappedAddress = 0;
+	kern_return_t kr = vm_remap(mach_task_self(), &remappedAddress, size, 0, VM_FLAGS_ANYWHERE, mach_task_self(), (vm_address_t)*uaddr, FALSE, &cur_prot, &max_prot, VM_INHERIT_NONE);
+	if (kr != KERN_SUCCESS) return kr;
+	*uaddr = (void *)remappedAddress;
+
 	return 0;
 }
 

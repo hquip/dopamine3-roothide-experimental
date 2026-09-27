@@ -5,9 +5,10 @@
 #include <choma/Fat.h>
 
 typedef enum {
-	SIGNATURE_SOURCE_ALLOCATION,
-	SIGNATURE_SOURCE_FILE,
-	SIGNATURE_SOURCE_PROC,
+	// Preserve the values used by existing RootHide clients on the wire.
+	SIGNATURE_SOURCE_FILE = 0,
+	SIGNATURE_SOURCE_PROC = 1,
+	SIGNATURE_SOURCE_ALLOCATION = 2,
 } signature_source_t;
 
 struct siginfo {

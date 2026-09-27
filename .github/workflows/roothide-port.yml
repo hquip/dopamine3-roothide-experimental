@@ -1,0 +1,106 @@
+name: Build experimental Dopamine 3 RootHide port
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roothide-port-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out this repository and its pinned submodules
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check source files and prepare the XPF port
+        run: |
+          mkdir -p .port-build/logs
+          python3 scripts/check_port.py
+          python3 scripts/prepare_port.py
+          plutil -lint Application/Dopamine.xcodeproj/project.pbxproj
+          git rev-parse HEAD > .port-build/logs/source-commit.txt
+          git submodule status --recursive > .port-build/logs/submodules.txt
+          xcodebuild -version > .port-build/logs/xcode-version.txt
+          sw_vers > .port-build/logs/macos-version.txt
+
+      - name: Verify the runner and support the Procursus host utilities
+        run: |
+          test "$(uname -m)" = arm64
+          # The pinned Procursus action downloads its darwin-amd64 bootstrap.
+          # The iOS binaries are still cross-compiled by the native Xcode tools.
+          if ! /usr/bin/arch -x86_64 /usr/bin/true; then
+            sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+          fi
+          /usr/bin/arch -x86_64 /usr/bin/true
+
+      - name: Install packaging utilities
+        uses: dhinakg/procursus-action@4526d5e64410da26bea8073926c0bf8e779293f1
+        with:
+          packages: ldid findutils sed coreutils make dpkg zstd
+          cache: 'false'
+
+      - name: Set up the macOS build dependencies
+        run: bash scripts/setup_macos.sh 2>&1 | tee .port-build/logs/setup.log
+
+      - name: Build the experimental IPA
+        run: |
+          export THEOS="$GITHUB_WORKSPACE/.port-build/theos"
+          # Procursus adds host include/library paths; do not pass them to iOS.
+          unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+          export PATH="$(dirname "$(xcrun --find clang)"):$(brew --prefix make)/libexec/gnubin:$PATH"
+          gmake -j"$(sysctl -n hw.logicalcpu)" BUILD_STANDALONE=0 2>&1 | tee .port-build/logs/build.log
+          test -s Application/Dopamine.ipa
+          shasum -a 256 Application/Dopamine.ipa > .port-build/logs/ipa-sha256.txt
+
+      - name: Check the legacy and V3 protocol ABI with the iOS SDK
+        run: |
+          set -euo pipefail
+          unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+          {
+            for arch in arm64 arm64e; do
+              echo "Checking the iOS $arch protocol ABI"
+              xcrun --sdk iphoneos clang -arch "$arch" -std=gnu11 -fblocks \
+                -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+                -miphoneos-version-min=15.0 \
+                -IBaseBin/libjailbreak/src -IBaseBin/.include \
+                -fsyntax-only -Werror tests/protocol_abi.c
+            done
+          } 2>&1 | tee .port-build/logs/protocol-abi.log
+
+      - name: Upload IPA and build evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: experimental-roothide-port-${{ github.run_number }}
+          path: |
+            Application/Dopamine.ipa
+            .port-build/logs/
+            .ci/dependencies.json
+            PORTING.md
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
+      - name: Upload diagnostic logs after a failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: roothide-port-build-logs-${{ github.run_number }}
+          path: .port-build/logs/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
