@@ -1,0 +1,4 @@
+# Unified-diff context has meaningful leading/trailing spaces. Check the
+# applied XPF source separately, rather than treating patch syntax as code.
+patches/*.patch text eol=lf -whitespace
+scripts/*.sh text eol=lf

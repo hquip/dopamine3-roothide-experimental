@@ -6,7 +6,7 @@
 
 - `python scripts/check_port.py`：冲突标记、plist/JSON、重复服务编号、实验版本标识、固定 RootHide bootstrap/Manager 内容检查通过。
 - `python scripts/prepare_port.py`：指定 XPF 基础版本和补丁检查通过；在独立干净 checkout 上重新应用补丁，三个修改文件与工作区结果一致。
-- `git diff --check HEAD`：整个移植相对上游的空白与冲突检查通过。
+- `git diff --check 3.0.10`：整个移植相对上游的空白与冲突检查通过。统一补丁文件中的上下文空格按 `.gitattributes` 保留，其实际应用后的 XPF 源码单独通过 `git -C BaseBin/XPF diff --check HEAD`。
 - GitHub 工作流 YAML、所有内联 shell 和 `scripts/setup_macos.sh` 的 Bash 语法检查通过。
 - Application 的 Xcode OpenStep 项目可以解析，未发现重复对象 ID；DarkSword 保留上游 3.0.10 内容。
 - XPF `src/common.c`、`src/xpf.c`：Windows Clang 21.1.8，`--target=arm64-apple-ios15.0 -fblocks -fsyntax-only`，使用真实 Theos iPhoneOS 16.5 SDK、ChOma 和项目头文件，通过且无诊断。
