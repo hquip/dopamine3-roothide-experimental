@@ -50,3 +50,8 @@ arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 p
 本记录确认第一版的重复崩溃位置。修订版的源码检查、完整构建和设备复测结果应分别记录；
 修复一个已证实的启动崩溃不等于其余 RootHide 组件、重启恢复、卸载或银行 App 隐藏已通过。
 不要对第一版反复进行相同激活尝试。
+
+修订版 [云端构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36301032194)
+已通过；产物的两架构、三个入口版本分支已在内存中静态核对，四份内置 libjailbreak
+副本的 UUID/代码一致且已更新。设备安装记录确认构建号 2，成功激活仍未验证。
+修订版源码提交、哈希及检查范围见 [BUILD_ARTIFACT.md](BUILD_ARTIFACT.md)。
