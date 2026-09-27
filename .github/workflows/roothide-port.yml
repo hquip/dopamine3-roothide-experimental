@@ -89,7 +89,7 @@ jobs:
           xcrun --sdk macosx clang -std=gnu11 -fblocks -Wall -Wextra \
             -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
             -IBaseBin/libjailbreak/src -idirafter BaseBin/.include \
-            tests/jbserver_private_pipe_regression.c -lxpc -lbsm \
+            tests/jbserver_private_pipe_regression.c -lbsm \
             -o .port-build/tests/jbserver-private-pipe-test \
             2>&1 | tee .port-build/logs/jbserver-private-pipe-build.log
           .port-build/tests/jbserver-private-pipe-test \
