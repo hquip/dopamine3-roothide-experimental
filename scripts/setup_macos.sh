@@ -55,9 +55,13 @@ test -f "$THEOS/sdks/iPhoneOS16.5.sdk/SDKSettings.plist"
 clone_pinned https://github.com/CRKatri/trustcache.git "$(lock_value trustcache_commit)" "$port_work/trustcache"
 port_openssl="$(brew --prefix openssl@3)"
 port_arch="$(uname -m)"
-CFLAGS="${CFLAGS:-} -I$port_openssl/include -arch $port_arch" \
-LDFLAGS="${LDFLAGS:-} -L$port_openssl/lib -arch $port_arch" \
-    gmake -C "$port_work/trustcache" -j"$(sysctl -n hw.logicalcpu)" OPENSSL=1 CC="$(xcrun --find clang)"
+port_host_sdk="$(xcrun --sdk macosx --show-sdk-path)"
+# Invoking the compiler by its absolute path bypasses xcrun's SDK selection.
+# trustcache runs on the build host, so both compilation and linking need macOS.
+SDKROOT="$port_host_sdk" \
+CFLAGS="${CFLAGS:-} -isysroot $port_host_sdk -I$port_openssl/include -arch $port_arch" \
+LDFLAGS="${LDFLAGS:-} -isysroot $port_host_sdk -L$port_openssl/lib -arch $port_arch" \
+    gmake -C "$port_work/trustcache" -j"$(sysctl -n hw.logicalcpu)" OPENSSL=1 CC="$(xcrun --sdk macosx --find clang)"
 sudo install -m 755 "$port_work/trustcache/trustcache" /opt/procursus/bin/trustcache
 
 # Exercise the exact packaging options used by Packages/* before compiling.

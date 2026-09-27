@@ -14,6 +14,6 @@
 
 协议测试中的旧版期望值经过独立交叉核对：使用未修改的 RootHide tag 27 `jbserver.h` / `signatures.h` 及其固定 ChOma 头文件，而非从当前移植结构自我推导。两种架构下，真实 SDK 的 `fsignatures_t` 为 56 字节、`siginfo` 为 64 字节、旧 trust 请求为 120 字节。测试覆盖扩展签名字段，避免只按三个基础字段估算旧 ABI。
 
-这些检查没有执行内核写入、越狱程序或手机安装，也没有完成链接和 IPA 打包。当前仍没有 GitHub macOS 构建运行记录。云端流程会重新使用 Xcode 的真实设备 SDK 检查协议，并保存实际工具版本与日志；其结果可能暴露 Windows 交叉语法检查没有覆盖的差异。
+这些检查没有执行内核写入、越狱程序或手机安装，也没有完成完整应用链接和 IPA 打包。首轮 [GitHub macOS 构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36291431442) 已通过源码、子模块、工具环境和 SDK 校验，在宿主 trustcache 构建处因缺少 macOS sysroot 失败；已为该宿主编译补充显式 SDK 路径，等待重跑。云端流程会使用 Xcode 的真实设备 SDK 检查协议，并保存实际工具版本与日志。
 
 设备上的 vnode/namecache 布局、远程 dyld/PAC、预编译依赖、重启与卸载，以及任何银行 App 的检测结果，仍需验证。详细清单见 [PORTING.md](PORTING.md)。

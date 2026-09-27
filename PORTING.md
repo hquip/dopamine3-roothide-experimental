@@ -35,7 +35,7 @@
 | XPF 补丁与固定基线 | 使用 `scripts/prepare_port.py` 复核 |
 | XPF 的两个补丁源文件 | Windows Clang 21.1.8 + 真实 iOS 16.5 SDK，arm64 交叉语法检查通过 |
 | 新旧协议尺寸及函数签名 | 同一真实 SDK 下 arm64、arm64e 的 `tests/protocol_abi.c` 检查通过；不是完整 Xcode 构建 |
-| macOS/Xcode 完整构建 | 尚未运行 |
+| macOS/Xcode 完整构建 | 已启动云端构建，尚未通过；当前在修复构建日志暴露的问题 |
 | IPA 签名与安装 | 尚未执行 |
 | XR / iOS 18.3 越狱、重启、卸载 | 尚未测试 |
 | 任意银行 App 的隐藏效果 | 尚未测试 |
