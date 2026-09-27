@@ -3,7 +3,8 @@
 目标设备为 iPhone XR（A12），iOS 18.3 / 22D60。第一版 IPA 来源提交为
 `308ca31ac9fe4a03ecd98d12862e510ec79e1f89`，实验标识为
 `3.0.10-roothide-port.1`。签名安装及开发者模式检查成功；实际激活失败，
-表现为出现 Apple 标志并整机重启。当前修订版标识为 `3.0.10-roothide-port.2`。
+表现为出现 Apple 标志并整机重启。port.2 修复该问题后，第二次测试又触发了
+`launchd` 的 `SIGABRT`。当前修订版标识为 `3.0.10-roothide-port.3`。
 
 ## 证据
 
@@ -42,6 +43,13 @@ Panicked task: pid 1: launchd
 
 ## 验证边界
 
+port.2 的新报告定位到 `roothider/jailbreakd.c` 的显式 `abort()`：私有
+bootstrap 端口收到消息后，代码假设全局 XPC hook 已经消费它。RootHide 2 的
+hook 是函数入口拦截；当前移植使用导入符号重绑定，不能保证覆盖 libxpc 内部路径。
+port.3 增加了显式的 typed callback，让该端口调用原有 jbserver dispatcher，保留
+审计令牌、RootHide 过滤、domain/action 和权限检查；拒绝消息返回明确的非零错误，
+不伪造成功，也不再让合法消息触发 `abort()`。
+
 修订源码已通过现有 `scripts/check_port.py` 和 `git diff --check`；修改过的
 Objective-C 文件使用 Windows Clang 21.1.8 与真实 iPhoneOS 16.5 SDK，分别对
 arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 pause 返回值的唯一
@@ -51,7 +59,8 @@ arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 p
 修复一个已证实的启动崩溃不等于其余 RootHide 组件、重启恢复、卸载或银行 App 隐藏已通过。
 不要对第一版反复进行相同激活尝试。
 
-修订版 [云端构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36301032194)
-已通过；产物的两架构、三个入口版本分支已在内存中静态核对，四份内置 libjailbreak
-副本的 UUID/代码一致且已更新。设备安装记录确认构建号 2，成功激活仍未验证。
+修订版 port.2 的[云端构建](https://github.com/hquip/dopamine3-roothide-experimental/actions/runs/36301032194)
+已通过；其产物的两架构、三个入口版本分支已在内存中静态核对，四份内置 libjailbreak
+副本的 UUID/代码一致且已更新。设备安装记录确认构建号 2，但它仍在第二次激活时
+触发了上述 `SIGABRT`。port.3 的完整构建、消息回归测试和设备验证尚待完成。
 修订版源码提交、哈希及检查范围见 [BUILD_ARTIFACT.md](BUILD_ARTIFACT.md)。

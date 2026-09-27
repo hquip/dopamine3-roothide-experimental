@@ -81,6 +81,20 @@ jobs:
             done
           } 2>&1 | tee .port-build/logs/protocol-abi.log
 
+      - name: Run local libxpc jailbreakd dispatcher regression
+        run: |
+          set -euo pipefail
+          unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+          mkdir -p .port-build/tests
+          xcrun --sdk macosx clang -std=gnu11 -fblocks -Wall -Wextra \
+            -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            -IBaseBin/libjailbreak/src -idirafter BaseBin/.include \
+            tests/jbserver_private_pipe_regression.c -lxpc -lbsm \
+            -o .port-build/tests/jbserver-private-pipe-test \
+            2>&1 | tee .port-build/logs/jbserver-private-pipe-build.log
+          .port-build/tests/jbserver-private-pipe-test \
+            2>&1 | tee .port-build/logs/jbserver-private-pipe-test.log
+
       - name: Upload IPA and build evidence
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

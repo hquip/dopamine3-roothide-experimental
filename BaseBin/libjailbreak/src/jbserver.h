@@ -48,6 +48,9 @@ struct jbserver_impl {
 extern struct jbserver_impl gGlobalServer;
 
 int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xmsg);
+// Private endpoints can explicitly reject unhandled messages instead of
+// relying on a global receive hook. The request remains owned by the caller.
+int jbserver_received_xpc_message_with_error_reply(struct jbserver_impl *server, xpc_object_t xmsg);
 
 #define JBSERVER_MACH_MAGIC 0x444F50414D494E45
 #define JBSERVER_MACH_MAGIC_LEGACY JBSERVER_MACH_MAGIC

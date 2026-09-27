@@ -1,5 +1,6 @@
 #include "jbserver.h"
 #include "util.h"
+#include <errno.h>
 
 #include "roothider.h"
 
@@ -36,6 +37,11 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 		action = &domain->actions[i];
 	}
 	if (!action->handler) return -1;
+
+	// This protocol requires a reply. Reject one-way messages before invoking
+	// a handler or extracting owned file descriptors / Mach rights.
+	xpc_object_t xreply = xpc_dictionary_create_reply(xmsg);
+	if (!xreply) return -1;
 
 	int (*handler)(void *a1, void *a2, void *a3, void *a4, void *a5, void *a6, void *a7, void *a8) = action->handler;
 	void *args[8] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
@@ -90,7 +96,6 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 
 	int result = handler(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
 
-	xpc_object_t xreply = xpc_dictionary_create_reply(xmsg);
 	for (uint64_t i = 0; action->args[i].name && i < 8; i++) {
 		jbserver_arg *argDesc = &action->args[i];
 		if (argDesc->out) {
@@ -154,4 +159,24 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 	xpc_release(xreply);
 
 	return 0;
+}
+
+int jbserver_received_xpc_message_with_error_reply(struct jbserver_impl *server, xpc_object_t xmsg)
+{
+	if (!xmsg || xpc_get_type(xmsg) != XPC_TYPE_DICTIONARY) return EINVAL;
+
+	// Use the same decoder, audit token and permission handlers as the normal
+	// receive hook. A successful dispatch has already sent its own reply.
+	int dispatchResult = server ? jbserver_received_xpc_message(server, xmsg) : -1;
+	if (dispatchResult == 0) return 0;
+
+	int error = dispatchResult == -2 ? EPERM : EINVAL;
+	xpc_object_t reply = xpc_dictionary_create_reply(xmsg);
+	if (reply) {
+		xpc_dictionary_set_int64(reply, "result", error);
+		int sendError = xpc_pipe_routine_reply(reply);
+		xpc_release(reply);
+		if (sendError != 0) return sendError;
+	}
+	return error;
 }

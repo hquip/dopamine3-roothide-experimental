@@ -6,6 +6,7 @@
 #include <mach/mach.h>
 #include <bsm/libbsm.h>
 #include <sys/param.h>
+#include <errno.h>
 
 #include "../libjailbreak.h"
 #include "jailbreakd.h"
@@ -31,6 +32,7 @@ int posix_spawnattr_set_registered_ports_np(posix_spawnattr_t * __restrict attr,
 
 static bool __firstLoad = false;
 static bool __jailbreakd_initialized = false;
+static jailbreakd_bootstrap_handler_t gJailbreakdBootstrapHandler = NULL;
 mach_port_t gJailbreakdPort = MACH_PORT_NULL;
 
 #define JAILBREAKD_CLIENT_PORT_FAST_GET
@@ -112,9 +114,18 @@ int spawnJailbreakd()
 			xpc_object_t xdict = NULL;
 			int err = xpc_pipe_receive(bootstraport, &xdict);
 			if(err == 0) {
-				abort(); /* xpchook should handle the jbclient messages, should never go here */
-				//jbserver_received_xpc_message(&gGlobalServer, xdict);
-				xpc_release(xdict);
+				if (gJailbreakdBootstrapHandler) {
+					// Symbol rebinding need not intercept libxpc's internal calls.
+					// This private receive port therefore owns dispatch explicitly.
+					int dispatchError = gJailbreakdBootstrapHandler(xdict);
+					if (dispatchError != 0) {
+						JBLogError("jailbreakd bootstrap request rejected: %d", dispatchError);
+					}
+				} else {
+					// Preserve the legacy entry point's receive-hook contract.
+					abort();
+				}
+				if (xdict) xpc_release(xdict);
 			}
 		});
 		dispatch_resume(source);
@@ -159,6 +170,14 @@ int initJailbreakd(bool firstLoad)
 	__jailbreakd_initialized = true;
 
 	return spawnJailbreakd();
+}
+
+int initJailbreakdWithHandler(bool firstLoad, jailbreakd_bootstrap_handler_t handler)
+{
+	if (!handler) return EINVAL;
+	if (__jailbreakd_initialized) return EALREADY;
+	gJailbreakdBootstrapHandler = handler;
+	return initJailbreakd(firstLoad);
 }
 
 mach_port_t reactiveJailbreakdPort()

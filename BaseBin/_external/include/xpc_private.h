@@ -13,6 +13,8 @@ extern int xpc_pipe_receive(mach_port_t port, XPC_GIVES_REFERENCE xpc_object_t *
 
 extern void xpc_dictionary_set_mach_recv(xpc_object_t dictionary, const char* name, mach_port_t port);
 extern mach_port_t xpc_dictionary_extract_mach_recv(xpc_object_t dictionary, const char* name);
+extern mach_port_t xpc_dictionary_copy_mach_send(xpc_object_t dictionary, const char* name);
+extern void xpc_dictionary_set_mach_send(xpc_object_t dictionary, const char* name, mach_port_t port);
 
 extern XPC_RETURNS_RETAINED xpc_object_t xpc_copy_entitlement_for_token(const char *, audit_token_t *);
 

@@ -6,6 +6,7 @@
 
 #include <libjailbreak/libjailbreak.h>
 #include <libjailbreak/roothider.h>
+#include <libjailbreak/jbserver.h>
 
 #include "../systemhook/src/common/common.h"
 #include "../systemhook/src/common/envbuf.h"
@@ -95,6 +96,11 @@ void roothide_launchd_preinit()
 	exec_set_patch(false);
 }
 
+static int handleJailbreakdBootstrapMessage(xpc_object_t message)
+{
+	return jbserver_received_xpc_message_with_error_reply(&gGlobalServer, message);
+}
+
 void roothide_launchd_postinit(bool firstLoad)
 {
 	JBLogDebug("roothide_launchd_postinit: firstLoad=%d", firstLoad);
@@ -169,7 +175,7 @@ void roothide_launchd_postinit(bool firstLoad)
 	MSHookFunction(&xpc_pipe_routine_reply, (void*)new_xpc_pipe_routine_reply, &orig_xpc_pipe_routine_reply);
 
 	// load jailbreakd after applying hooks
-	assert(initJailbreakd(firstLoad) == 0);
+	assert(initJailbreakdWithHandler(firstLoad, handleJailbreakdBootstrapMessage) == 0);
 }
 
 #include <dlfcn.h>
