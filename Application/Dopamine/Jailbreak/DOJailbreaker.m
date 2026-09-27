@@ -566,10 +566,6 @@ void *boomerang_server(struct boomerang_info *info)
 {
 
 /****************** roothide specific ****************/
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[UIApplication sharedApplication] setIdleTimerDisabled:YES];
-    });
-
     exec_set_patch(false);
 /****************** roothide specific ****************/
 

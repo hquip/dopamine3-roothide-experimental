@@ -20,15 +20,9 @@ typedef NS_ENUM(NSInteger, BootstrapErrorCode) {
     BootstrapErrorCodeFailedReplacing           = -7,
 };
 
-@interface DOBootstrapper : NSObject <NSURLSessionDelegate, NSURLSessionDownloadDelegate>
-{
-    NSURLSession *_urlSession;
-    NSURLSessionDownloadTask *_bootstrapDownloadTask;
-    void (^_downloadCompletionBlock)(NSURL * _Nullable location, NSError * _Nullable error);
-}
+@interface DOBootstrapper : NSObject
 
 - (void)prepareBootstrapWithCompletion:(void (^)(NSError *))completion;
-- (NSError *)ensurePrivatePrebootIsWritable;
 - (NSError *)installPackageManagers;
 - (NSError *)finalizeBootstrap;
 - (NSError *)deleteBootstrap;

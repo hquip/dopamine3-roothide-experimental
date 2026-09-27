@@ -14,6 +14,7 @@
 #import <libjailbreak/jbclient_xpc.h>
 #import <sys/mount.h>
 #import <dlfcn.h>
+#import <dispatch/dispatch.h>
 #import <sys/stat.h>
 #import "NSString+Version.h"
 
@@ -22,12 +23,20 @@
 #define BASEBIN_LINK_BUNDLED_VERSION @"1.0.0"
 #define LAUNCHCTL_BUNDLED_VERSION @"1:1.2.0"
 
-static NSDictionary *gBundledPackages = @{
-    @"libkrw0-dopamine" : LIBKRW_DOPAMINE_BUNDLED_VERSION,
-    @"libroot-dopamine" : LIBROOT_DOPAMINE_BUNDLED_VERSION,
-    @"dopamine-basebin-link" : BASEBIN_LINK_BUNDLED_VERSION,
-    @"launchctl" : LAUNCHCTL_BUNDLED_VERSION,
-};
+static NSDictionary *bundledPackages(void)
+{
+    static NSDictionary *packages;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        packages = @{
+            @"libkrw0-dopamine" : LIBKRW_DOPAMINE_BUNDLED_VERSION,
+            @"libroot-dopamine" : LIBROOT_DOPAMINE_BUNDLED_VERSION,
+            @"dopamine-basebin-link" : BASEBIN_LINK_BUNDLED_VERSION,
+            @"launchctl" : LAUNCHCTL_BUNDLED_VERSION,
+        };
+    });
+    return packages;
+}
 
 struct hfs_mount_args {
     char    *fspec;
@@ -52,7 +61,7 @@ NSString *const bootstrapErrorDomain = @"BootstrapErrorDomain";
 ////////////////////////
 uint64_t jbrand_new();
 uint64_t jbrand_current();
-int is_jbroot_name(char* name);
+int is_jbroot_name(const char* name);
 NSString* find_jbroot(BOOL force);
 ////////////////////////////////////////
 NSString* jbrootPrefix(NSString *path);
@@ -75,7 +84,7 @@ int is_jbrand_value(uint64_t value)
 #define JB_ROOT_PREFIX ".jbroot-"
 #define JB_RAND_LENGTH  (sizeof(uint64_t)*sizeof(char)*2)
 
-int is_jbroot_name(char* name)
+int is_jbroot_name(const char* name)
 {
     if(strlen(name) != (sizeof(JB_ROOT_PREFIX)-1+JB_RAND_LENGTH))
         return 0;
@@ -385,51 +394,6 @@ int getCFMajorVersion(void)
     }
 }
 
-#if 0
-- (NSURL *)bootstrapURL
-{
-    return [NSURL URLWithString:[NSString stringWithFormat:@"https://apt.procurs.us/bootstraps/%@/bootstrap-ssh-iphoneos-arm64.tar.zst", [self bootstrapVersion]]];
-}
-
-/*- (void)downloadBootstrapWithCompletion:(void (^)(NSString *path, NSError *error))completion
-{
-    NSURL *bootstrapURL = [self bootstrapURL];
-    if (!bootstrapURL) {
-        completion(nil, [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedToGetURL userInfo:@{NSLocalizedDescriptionKey : @"Failed to obtain bootstrap URL"}]);
-        return;
-    }
-
-    _downloadCompletionBlock = ^(NSURL * _Nullable location, NSError * _Nullable error) {
-        NSError *ourError;
-        if (error) {
-            ourError = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedToDownload userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to download bootstrap: %@", error.localizedDescription]}];
-        }
-        completion(location.path, ourError);
-    };
-
-    _bootstrapDownloadTask = [_urlSession downloadTaskWithURL:bootstrapURL];
-    [_bootstrapDownloadTask resume];
-}*/
-
-- (void)extractBootstrap:(NSString *)path withCompletion:(void (^)(NSError *))completion
-{
-    NSString *bootstrapTar = [@"/var/tmp" stringByAppendingPathComponent:@"bootstrap.tar"];
-    NSError *decompressionError = [self decompressZstd:path toTar:bootstrapTar];
-    if (decompressionError) {
-        completion(decompressionError);
-        return;
-    }
-
-    decompressionError = [self extractTar:bootstrapTar toPath:@"/"];
-    if (decompressionError) {
-        completion(decompressionError);
-        return;
-    }
-
-    [[NSData data] writeToFile:JBROOT_PATH(@"/.installed_dopamine") atomically:YES];
-    completion(nil);
-}
-
 - (int)installPackage:(NSString *)packagePath
 {
     if (getuid() == 0) {
@@ -483,7 +447,7 @@ int getCFMajorVersion(void)
 
 - (BOOL)shouldInstallPackage:(NSString *)identifier
 {
-    NSString *bundledVersion = gBundledPackages[identifier];
+    NSString *bundledVersion = [bundledPackages() objectForKey:identifier];
     if (!bundledVersion) return NO;
 
     NSString *installedVersion = [self installedVersionForPackageWithIdentifier:identifier];
@@ -492,27 +456,7 @@ int getCFMajorVersion(void)
     return [installedVersion numericalVersionRepresentation] < [bundledVersion numericalVersionRepresentation];
 }
 
-#if 0
-- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
-{
-    if (downloadTask == _bootstrapDownloadTask) {
-        NSString *sizeString = [NSByteCountFormatter stringFromByteCount:totalBytesWritten countStyle:NSByteCountFormatterCountStyleFile];
-        NSString *writtenBytesString = [NSByteCountFormatter stringFromByteCount:totalBytesExpectedToWrite countStyle:NSByteCountFormatterCountStyleFile];
 
-        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Downloading Bootstrap (%@/%@)", sizeString, writtenBytesString] debug:NO update:YES];
-    }
-}
-
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
-{
-    _downloadCompletionBlock(nil, error);
-}
-
-- (void)URLSession:(nonnull NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(nonnull NSURL *)location
-{
-    _downloadCompletionBlock(location, nil);
-}
-#endif
 
 
 #define STRAPLOG(...)   [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@__VA_ARGS__] debug:YES];

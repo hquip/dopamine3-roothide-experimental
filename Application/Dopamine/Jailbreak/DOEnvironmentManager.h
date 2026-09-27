@@ -41,8 +41,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)accessibleKernelPath;
 - (NSString *)accessibleSPTMPath;
 - (NSString *)accessibleTXMPath;
-- (void)locateJailbreakRoot;
-- (NSError *)ensureJailbreakRootExists;
 
 - (void)setJailbroken:(BOOL)jailbroken withVersion:(NSString *)version;
 
@@ -80,6 +78,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSError *)deleteBootstrap;
 - (NSError *)reinstallPackageManagers;
 - (NSError *)updateBootLogo;
+@end
+
+// Implemented alongside the RootHide bootstrap directory helpers.
+@interface DOEnvironmentManager (roothide)
+- (void)locateJailbreakRoot;
+- (NSError *)ensureJailbreakRootExists;
 @end
 
 NS_ASSUME_NONNULL_END

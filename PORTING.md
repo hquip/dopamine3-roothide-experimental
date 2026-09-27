@@ -21,6 +21,8 @@
 - 保留 RootHide 服务编号 5，将本项目内的 Dopamine 专用服务改为编号 6，避免编号冲突。
 - 保留旧的客户端函数包装层，将新代码调用移到 V3 接口；Mach 消息按旧版与 V3 magic 分别解析和回复，保留旧版签名来源枚举数值。
 - 将运行时生成文件统一到 Dopamine 3 的 `/basebin/gen` 布局，并保留新版 dyld 产物分类。
+- 手机 App 使用自身的越狱流程。上游 Standalone/Corellium 的 rootless 命令行安装器尚未移植；本分支 CLI 仅保留只读诊断，`install`/`activate` 会明确拒绝，不会创建全局 `/var/jb` 或挂载 fakelib。
+- 旧 RootHide 系统插件使用已固定的 Theos 16.5 补丁 SDK 和仓库兼容头文件；Dopamine 3 原生组件继续使用所选 Xcode 的设备 SDK。
 - 基于 Dopamine 3 的 XPF 增加 RootHide 的 namecache 与 AMFI OID 查找集合。补丁随主仓库保存，由脚本应用，避免引用尚未发布的自定义子模块提交。
 - XPF 增量对查找失败返回错误，修复旧增量将失败地址记为 `-1` 的情况，避免跨内核映像缓存这两个查找地址，并补充新段资源的释放。
 - 实验版本显示独立标识，禁止自动从旧 RootHide 或普通 Dopamine 发布渠道更新。

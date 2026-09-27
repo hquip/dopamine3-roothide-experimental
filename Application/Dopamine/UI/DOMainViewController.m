@@ -213,6 +213,9 @@
 
 - (void)startJailbreak
 {
+    // Idle-timer control belongs to the UIKit app; the shared jailbreaker also
+    // builds into the command-line tool without linking UIKit.
+    [[UIApplication sharedApplication] setIdleTimerDisabled:YES];
     DOJailbreaker *jailbreaker = [[DOJailbreaker alloc] init];
 
     [[DOUIManager sharedInstance] startLogCapture];
