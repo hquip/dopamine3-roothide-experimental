@@ -23,6 +23,7 @@ typedef NS_ENUM(NSInteger, BootstrapErrorCode) {
 @interface DOBootstrapper : NSObject
 
 - (void)prepareBootstrapWithCompletion:(void (^)(NSError *))completion;
+- (int)installPackage:(NSString *)packagePath;
 - (NSError *)installPackageManagers;
 - (NSError *)finalizeBootstrap;
 - (NSError *)deleteBootstrap;

@@ -684,6 +684,18 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             error = [self->_bootstrapper installPackageManagers];
+            if (!error) {
+                NSString *roothideManager = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"roothideapp.deb"];
+                int ret = [self->_bootstrapper installPackage:roothideManager];
+                if (ret != 0) {
+                    error = [NSError errorWithDomain:@"BootstrapErrorDomain" code:-6 userInfo:@{
+                        NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to reinstall RootHide Manager: %d", ret]
+                    }];
+                }
+            }
+            if (!error) {
+                exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+            }
         }];
     }];
     return error;
