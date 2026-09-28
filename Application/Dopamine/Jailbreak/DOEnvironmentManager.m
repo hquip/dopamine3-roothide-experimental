@@ -701,6 +701,18 @@ extern char **environ;
     return error;
 }
 
+- (NSError *)reinstallAllBundledApps
+{
+    __block NSError *error;
+    [self runAsRoot:^{
+        [self runUnsandboxed:^{
+            error = [self->_bootstrapper installAllBundledApps];
+            if (!error) exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+        }];
+    }];
+    return error;
+}
+
 - (NSError *)updateBootLogo
 {
     const char *bootLogoPath = JBROOT_PATH("/basebin/bootlogo.jp2");

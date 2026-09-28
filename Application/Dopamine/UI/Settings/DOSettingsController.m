@@ -323,6 +323,14 @@
                         [reinstallPackageManagersSpecifier setProperty:@"shippingbox" forKey:@"image"];
                     [reinstallPackageManagersSpecifier setProperty:@"reinstallPackageManagersPressed" forKey:@"action"];
                     [specifiers addObject:reinstallPackageManagersSpecifier];
+
+                    PSSpecifier *restoreAppsSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
+                    [restoreAppsSpecifier setProperty:@"Button_Restore_Jailbreak_Apps" forKey:@"title"];
+                    [restoreAppsSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [restoreAppsSpecifier setProperty:buttonHeight forKey:@"height"];
+                    [restoreAppsSpecifier setProperty:@"shippingbox.and.arrow.down" forKey:@"image"];
+                    [restoreAppsSpecifier setProperty:@"restoreJailbreakAppsPressed" forKey:@"action"];
+                    [specifiers addObject:restoreAppsSpecifier];
                 }
 
                 // RootHide uses its own app isolation; the rootless hide/mount action is not applicable.
@@ -654,6 +662,20 @@
 - (void)reinstallPackageManagersPressed
 {
     [self.navigationController pushViewController:[[DOPkgManagerPickerViewController alloc] init] animated:YES];
+}
+
+- (void)restoreJailbreakAppsPressed
+{
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSError *error = [[DOEnvironmentManager sharedManager] reinstallAllBundledApps];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSString *message = error ? error.localizedDescription : DOLocalizedString(@"Restore_Jailbreak_Apps_Success");
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Button_Restore_Jailbreak_Apps") message:message preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Close") style:UIAlertActionStyleDefault handler:nil]];
+            [weakSelf presentViewController:alert animated:YES completion:nil];
+        });
+    });
 }
 
 - (void)changeMobilePasswordWithAuthenticationPressed

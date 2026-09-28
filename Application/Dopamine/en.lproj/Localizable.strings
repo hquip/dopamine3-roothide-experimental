@@ -51,6 +51,8 @@
 "Button_Unhide_Jailbreak" = "Unhide Jailbreak";
 "Button_Refresh_Jailbreak_Apps" = "Refresh Jailbreak Apps";
 "Button_Rebuild_Icon_Cache" = "Rebuild Icon Cache";
+"Button_Restore_Jailbreak_Apps" = "Restore Jailbreak Apps";
+"Restore_Jailbreak_Apps_Success" = "RootHide, Sileo, and Zebra were reinstalled and the icon cache was refreshed.";
 "Button_Reinstall_Package_Managers" = "Reinstall Package Managers";
 "Button_Change_Mobile_Password" = "Change \"mobile\" Password";
 

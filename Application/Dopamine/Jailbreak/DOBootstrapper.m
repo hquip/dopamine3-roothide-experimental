@@ -445,6 +445,27 @@ int getCFMajorVersion(void)
     return nil;
 }
 
+- (NSError *)installAllBundledApps
+{
+    for (NSDictionary *packageManagerDict in [[DOUIManager sharedInstance] availablePackageManagers]) {
+        NSString *path = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:packageManagerDict[@"Package"]];
+        int ret = [self installPackage:path];
+        if (ret != 0) {
+            return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{
+                NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install %@: %d", packageManagerDict[@"Display Name"], ret]
+            }];
+        }
+    }
+    NSString *rootHide = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"roothideapp.deb"];
+    int ret = [self installPackage:rootHide];
+    if (ret != 0) {
+        return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{
+            NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install RootHide Manager: %d", ret]
+        }];
+    }
+    return nil;
+}
+
 - (BOOL)shouldInstallPackage:(NSString *)identifier
 {
     NSString *bundledVersion = [bundledPackages() objectForKey:identifier];

@@ -25,6 +25,7 @@ typedef NS_ENUM(NSInteger, BootstrapErrorCode) {
 - (void)prepareBootstrapWithCompletion:(void (^)(NSError *))completion;
 - (int)installPackage:(NSString *)packagePath;
 - (NSError *)installPackageManagers;
+- (NSError *)installAllBundledApps;
 - (NSError *)finalizeBootstrap;
 - (NSError *)deleteBootstrap;
 
