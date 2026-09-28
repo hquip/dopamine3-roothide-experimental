@@ -707,7 +707,18 @@ extern char **environ;
     [self runAsRoot:^{
         [self runUnsandboxed:^{
             error = [self->_bootstrapper installAllBundledApps];
-            if (!error) exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+            if (!error) {
+                // RootHide packages live under jbroot/Applications; uicache -a
+                // may skip this private container on iOS 18. Register each app
+                // explicitly before rebuilding the LaunchServices database.
+                const char *apps[] = {"Sileo.app", "Zebra.app", "RootHide.app"};
+                for (size_t i = 0; i < sizeof(apps) / sizeof(apps[0]); i++) {
+                    NSString *path = [NSString stringWithFormat:@"%@/Applications/%s", JBROOT_PATH(@"/"), apps[i]];
+                    exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-p", path.fileSystemRepresentation, NULL);
+                }
+                exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
+                exec_cmd(JBROOT_PATH("/usr/bin/jbctl"), "rebuild_icon_cache", NULL);
+            }
         }];
     }];
     return error;
