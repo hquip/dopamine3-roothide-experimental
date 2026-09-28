@@ -80,3 +80,6 @@ arm64、arm64e 完成交叉语法检查，两次均无诊断。另行复核了 p
 核对构建号 3；设备日志随后显示 loader 错误 2。port.4 尚待完整构建和设备安装验证，
 当前设备仍未安装 port.6，尚未再次点击“越狱”。
 修订版源码提交、哈希及检查范围见 [BUILD_ARTIFACT.md](BUILD_ARTIFACT.md)。
+
+port.8 adds a Settings action to rebuild the system icon database after uicache fails; it does not alter jailbreak or injection code.
+

@@ -297,6 +297,14 @@
                     [refreshAppsSpecifier setProperty:@"refreshJailbreakAppsPressed" forKey:@"action"];
                     [specifiers addObject:refreshAppsSpecifier];
 
+                    PSSpecifier *rebuildIconCacheSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
+                    [rebuildIconCacheSpecifier setProperty:@"Button_Rebuild_Icon_Cache" forKey:@"title"];
+                    [rebuildIconCacheSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+                    [rebuildIconCacheSpecifier setProperty:buttonHeight forKey:@"height"];
+                    [rebuildIconCacheSpecifier setProperty:@"square.grid.2x2" forKey:@"image"];
+                    [rebuildIconCacheSpecifier setProperty:@"rebuildIconCachePressed" forKey:@"action"];
+                    [specifiers addObject:rebuildIconCacheSpecifier];
+
                     PSSpecifier *changeMobilePasswordSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
                     [changeMobilePasswordSpecifier setProperty:@"Button_Change_Mobile_Password" forKey:@"title"];
                     [changeMobilePasswordSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
@@ -636,6 +644,11 @@
 - (void)refreshJailbreakAppsPressed
 {
     [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
+}
+
+- (void)rebuildIconCachePressed
+{
+    [[DOEnvironmentManager sharedManager] rebuildIconCache];
 }
 
 - (void)reinstallPackageManagersPressed
