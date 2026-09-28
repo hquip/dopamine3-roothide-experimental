@@ -352,6 +352,20 @@
             }
         }
 
+        // RootHide can remain active while its bootstrap marker is hidden or
+        // stale. Keep the recovery action visible whenever the app reports an
+        // active jailbreak, so package apps can be restored without repeating
+        // the kernel exploit.
+        if (envManager.isJailbroken && !envManager.isBootstrapped) {
+            PSSpecifier *restoreAppsFallbackSpecifier = [PSSpecifier preferenceSpecifierNamed:@"" target:self set:defSetter get:defGetter detail:nil cell:PSStaticTextCell edit:nil];
+            [restoreAppsFallbackSpecifier setProperty:@"Button_Restore_Jailbreak_Apps" forKey:@"title"];
+            [restoreAppsFallbackSpecifier setProperty:[DOButtonCell class] forKey:@"cellClass"];
+            [restoreAppsFallbackSpecifier setProperty:buttonHeight forKey:@"height"];
+            [restoreAppsFallbackSpecifier setProperty:@"shippingbox.and.arrow.down" forKey:@"image"];
+            [restoreAppsFallbackSpecifier setProperty:@"restoreJailbreakAppsPressed" forKey:@"action"];
+            [specifiers addObject:restoreAppsFallbackSpecifier];
+        }
+
         PSSpecifier *themingGroupSpecifier = [PSSpecifier emptyGroupSpecifier];
         themingGroupSpecifier.name = DOLocalizedString(@"Section_Customization");
         [specifiers addObject:themingGroupSpecifier];
