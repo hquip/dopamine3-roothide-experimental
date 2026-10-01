@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <pthread.h>
+#include <errno.h>
 #include <mach-o/dyld.h>
 #include <dlfcn.h>
 #include <os/alloc_once_private.h>
@@ -91,21 +92,32 @@ xpc_object_t jbserver_xpc_send(uint64_t domain, uint64_t action, xpc_object_t xa
 char *jbclient_get_jbroot(void)
 {
 	static char rootPath[PATH_MAX] = { 0 };
-	static dispatch_once_t dot;
+	static pthread_mutex_t rootPathLock = PTHREAD_MUTEX_INITIALIZER;
 
-	dispatch_once(&dot, ^{
-		xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_SYSTEMWIDE, JBS_SYSTEMWIDE_GET_JBROOT, NULL);
-		if (xreply) {
-			const char *replyRootPath = xpc_dictionary_get_string(xreply, "root-path");
-			if (replyRootPath) {
-				strlcpy(&rootPath[0], replyRootPath, sizeof(rootPath));
-			}
-			xpc_release(xreply);
+	pthread_mutex_lock(&rootPathLock);
+	bool cached = rootPath[0] != '\0';
+	pthread_mutex_unlock(&rootPathLock);
+	if (cached) return rootPath;
+
+	// A temporary server failure must not poison the cache for this process.
+	// Do not hold the lock across IPC: a nested request can ask for jbroot again.
+	xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_SYSTEMWIDE, JBS_SYSTEMWIDE_GET_JBROOT, NULL);
+	if (xreply) {
+		const char *replyRootPath = xpc_get_type(xreply) == XPC_TYPE_DICTIONARY ? xpc_dictionary_get_string(xreply, "root-path") : NULL;
+		if (replyRootPath && replyRootPath[0] == '/' && replyRootPath[1] != '\0' && strlen(replyRootPath) < sizeof(rootPath)) {
+			pthread_mutex_lock(&rootPathLock);
+			// Once published this buffer is immutable, including when concurrent
+			// successful requests finish in a different order.
+			if (rootPath[0] == '\0') strlcpy(rootPath, replyRootPath, sizeof(rootPath));
+			pthread_mutex_unlock(&rootPathLock);
 		}
-	});
+		xpc_release(xreply);
+	}
 
-	if (rootPath[0] == '\0') return NULL;
-	return (char *)&rootPath[0];
+	pthread_mutex_lock(&rootPathLock);
+	cached = rootPath[0] != '\0';
+	pthread_mutex_unlock(&rootPathLock);
+	return cached ? rootPath : NULL;
 }
 
 char *jbclient_get_boot_uuid(void)
@@ -267,6 +279,7 @@ double jbclient_jbsettings_get_double(const char *key)
 
 int jbclient_persona_fix(int childPid, uid_t overwriteUid, gid_t overwriteGid)
 {
+	if (childPid <= 0) return EINVAL;
 	xpc_object_t xargs = xpc_dictionary_create_empty();
 	xpc_dictionary_set_uint64(xargs, "child-pid", childPid);
 	xpc_dictionary_set_uint64(xargs, "overwrite-uid", overwriteUid);
@@ -274,7 +287,8 @@ int jbclient_persona_fix(int childPid, uid_t overwriteUid, gid_t overwriteGid)
 	xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_SYSTEMWIDE, JBS_SYSTEMWIDE_PERSONA_FIX, xargs);
 	xpc_release(xargs);
 	if (xreply) {
-		int result = xpc_dictionary_get_int64(xreply, "result");
+		xpc_object_t value = xpc_get_type(xreply) == XPC_TYPE_DICTIONARY ? xpc_dictionary_get_value(xreply, "result") : NULL;
+		int result = value && xpc_get_type(value) == XPC_TYPE_INT64 ? (int)xpc_int64_get_value(value) : -1;
 		xpc_release(xreply);
 		return result;
 	}

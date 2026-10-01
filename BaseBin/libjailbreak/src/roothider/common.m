@@ -20,6 +20,7 @@
 #include "jailbreakd.h"
 #include "common.h"
 #include "log.h"
+#include "spawn_cleanup.h"
 
 bool launchdhookFirstLoad = false;
 
@@ -696,7 +697,8 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
 {
     posix_spawnattr_t attr = NULL;
     if(!attrp) {
-        posix_spawnattr_init(&attr);
+        int attrError = posix_spawnattr_init(&attr);
+        if (attrError != 0) return attrError;
         attrp = &attr;
     }
 
@@ -718,24 +720,29 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
     if(need_patch_child && !dyld_patch_enabled() && getpid()!=1) {
         if(jbclient_trust_executable_recurse(path, NULL) != 0) {
             JBLogError("Failed to trust executable: %s", path);
+            if (attr) posix_spawnattr_destroy(&attr);
             return 999;
         }
     }
 
     short flags=0;
     posix_spawnattr_getflags(attrp, &flags);
+    posix_spawnattr_t mutableAttr = *attrp;
     bool should_resume = (flags & POSIX_SPAWN_START_SUSPENDED) == 0;
 
     JBLogDebug("exec_cmd_roothide_spawn path=%s flags=%x", path, flags);
     if (argv) for (int i = 0; argv[i]; i++) JBLogDebug("\targs[%d] = %s", i, argv[i]);
     if (envp) for (int i = 0; envp[i]; i++) JBLogDebug("\tenvp[%d] = %s", i, envp[i]);
 
-    posix_spawnattr_setflags(attrp, flags | POSIX_SPAWN_START_SUSPENDED);
+    posix_spawnattr_setflags(&mutableAttr, flags | POSIX_SPAWN_START_SUSPENDED);
 
-	pid_t pidval = 0;
-	if (!pidp) pidp = &pidval;
+    pid_t pidval = 0;
+    if (!pidp) pidp = &pidval;
     int ret = posix_spawn(pidp, path, fap, attrp, argv, envp);
-    pid_t pid = *pidp;
+    pid_t pid = ret == 0 ? *pidp : 0;
+
+    // Callers may reuse their attributes after this operation.
+    posix_spawnattr_setflags(&mutableAttr, flags);
 
     JBLogDebug("spawn ret=%d pid=%d", ret, pid);
 
@@ -745,14 +752,17 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
             // will fail before launchdhook injected and dyld patched, eg: opainject...
             if(jbdSpawnPatchChild(pid, should_resume) != 0) {
                 JBLogError("Failed to patch spawned process (%d) %s", pid, path);
-                //jailbreak internal spawn, just let it hang forever so that we could get a panic log
-                //kill(pid, SIGQUIT); //core dump
-                //kill(pid, SIGKILL);
-                return 202;
+                roothide_kill_and_reap_child(pid);
+                *pidp = 0;
+                ret = 202;
             }
         } else {
             if (should_resume) {
-                kill(pid, SIGCONT);
+                if (kill(pid, SIGCONT) != 0) {
+                    ret = errno;
+                    roothide_kill_and_reap_child(pid);
+                    *pidp = 0;
+                }
             }
         }
     }

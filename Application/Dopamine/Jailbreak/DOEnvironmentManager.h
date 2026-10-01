@@ -47,11 +47,14 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)runUnsandboxed:(void (^)(void))unsandboxBlock;
 - (void)runAsRoot:(void (^)(void))rootBlock;
+- (nullable NSError *)runAsRootChecked:(void (^)(void))rootBlock;
+- (nullable NSError *)runUnsandboxedChecked:(void (^)(void))unsandboxBlock;
+- (int)spawnJbctlAsRootWithArgs:(NSArray<NSString *> *)args;
 
 - (void)respring;
 - (void)rebootUserspace;
-- (void)rebuildIconCache;
-- (void)refreshJailbreakApps;
+- (nullable NSError *)rebuildIconCache;
+- (nullable NSError *)refreshJailbreakApps;
 - (NSError *)reinstallAllBundledApps;
 - (void)reboot;
 - (void)changeMobilePassword:(NSString *)newPassword;

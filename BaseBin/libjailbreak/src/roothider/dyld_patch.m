@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <mach-o/dyld.h>
 #include <mach-o/dyld_images.h>
@@ -143,7 +144,6 @@ int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
 
     if(all_image_info_addr_offset==0 || all_image_info_size_offset==0) {
         JBLogError("invalid all_image_info_addr/size offset");
-        abort();
         return -1;
     }
 
@@ -152,7 +152,6 @@ int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
         kwritebuf(task + info_offset, info, sizeof(info));
     } else if(task != proc_task(proc_find(1))) {
         JBLogError("invalid info offset");
-        abort();
         return -1;
     }
 
@@ -245,14 +244,25 @@ int loadSinature(int fd, struct mach_header_64* header)
 static uint64_t get_symbol(const char* path, const char* name)
 {
     void *csHandle = dlopen("/System/Library/PrivateFrameworks/CoreSymbolication.framework/CoreSymbolication", RTLD_NOW);
+	if (!csHandle) return 0;
 	CSSymbolicatorRef (*__CSSymbolicatorCreateWithPathAndArchitecture)(const char* path, cpu_type_t type) = dlsym(csHandle, "CSSymbolicatorCreateWithPathAndArchitecture");
 	CSSymbolRef (*__CSSymbolicatorGetSymbolWithMangledNameAtTime)(CSSymbolicatorRef cs, const char* name, uint64_t time) = dlsym(csHandle, "CSSymbolicatorGetSymbolWithMangledNameAtTime");
 	CSRange (*__CSSymbolGetRange)(CSSymbolRef sym) = dlsym(csHandle, "CSSymbolGetRange");
+	Boolean (*__CSIsNull)(CSTypeRef cs) = dlsym(csHandle, "CSIsNull");
+	void (*__CSRelease)(CSTypeRef cs) = dlsym(csHandle, "CSRelease");
+	if (!__CSSymbolicatorCreateWithPathAndArchitecture || !__CSSymbolicatorGetSymbolWithMangledNameAtTime
+		|| !__CSSymbolGetRange || !__CSIsNull || !__CSRelease) {
+		dlclose(csHandle);
+		return 0;
+	}
 
 	CSSymbolicatorRef symbolicator = __CSSymbolicatorCreateWithPathAndArchitecture(path, CPU_TYPE_ARM64);
+	if (__CSIsNull(symbolicator)) { dlclose(csHandle); return 0; }
 	CSSymbolRef symbol = __CSSymbolicatorGetSymbolWithMangledNameAtTime(symbolicator, name, 0);
-	CSRange range = __CSSymbolGetRange(symbol);
-    return range.location;
+	uint64_t address = __CSIsNull(symbol) ? 0 : __CSSymbolGetRange(symbol).location;
+	__CSRelease(symbolicator);
+	dlclose(csHandle);
+    return address;
 }
 
 struct DYLDINFO {
@@ -265,6 +275,40 @@ struct DYLDINFO {
     uint64_t loadDyldCache_trampoline;
 };
 
+static bool validateDyldImage(const struct mach_header_64 *header, uint64_t fileSize)
+{
+    if (fileSize < sizeof(*header) || header->magic != MH_MAGIC_64
+        || header->filetype != MH_DYLINKER || header->cputype != CPU_TYPE_ARM64
+        || header->sizeofcmds > fileSize - sizeof(*header)) return false;
+    uint64_t offset = sizeof(*header);
+    uint64_t commandsEnd = offset + header->sizeofcmds;
+    for (uint32_t i = 0; i < header->ncmds; i++) {
+        if (offset > commandsEnd || commandsEnd - offset < sizeof(struct load_command)) return false;
+        const struct load_command *lc = (const void *)((const char *)header + offset);
+        if (lc->cmdsize < sizeof(*lc) || lc->cmdsize > commandsEnd - offset) return false;
+        if (lc->cmd == LC_SEGMENT_64) {
+            if (lc->cmdsize < sizeof(struct segment_command_64)) return false;
+            const struct segment_command_64 *seg = (const void *)lc;
+            if (seg->nsects > (lc->cmdsize - sizeof(*seg)) / sizeof(struct section_64)
+                || seg->fileoff > fileSize || seg->filesize > fileSize - seg->fileoff
+                || seg->filesize > seg->vmsize || seg->vmaddr > UINT64_MAX - seg->vmsize) return false;
+        } else if (lc->cmd == LC_CODE_SIGNATURE) {
+            if (lc->cmdsize < sizeof(struct linkedit_data_command)) return false;
+            const struct linkedit_data_command *signature = (const void *)lc;
+            if (signature->dataoff > fileSize || signature->datasize > fileSize - signature->dataoff) return false;
+        }
+        offset += lc->cmdsize;
+    }
+    return offset == commandsEnd;
+}
+
+static void freeDyldInfo(struct DYLDINFO *info)
+{
+    if (!info) return;
+    if (info->imageAddress) vm_deallocate(mach_task_self(), (vm_address_t)info->imageAddress, info->vmSpaceSize);
+    free(info);
+}
+
 struct DYLDINFO* loadDyldInfo(const char* path)
 {
     JBLogDebug("loadDyldInfo: %s", path);
@@ -273,8 +317,8 @@ struct DYLDINFO* loadDyldInfo(const char* path)
     kern_return_t kr;
     void* dyld = MAP_FAILED;
 
-    struct DYLDINFO* result = malloc(sizeof(struct DYLDINFO));
-    memset(result, 0, sizeof(struct DYLDINFO));
+    struct DYLDINFO* result = calloc(1, sizeof(struct DYLDINFO));
+    if (!result) return NULL;
 
     result->loadDyldCache_function = get_symbol(path, "__ZN5dyld313loadDyldCacheERKNS_18SharedCacheOptionsEPNS_19SharedCacheLoadInfoE");
     JBLogDebug("loadDyldCache function: %llx", result->loadDyldCache_function);
@@ -298,6 +342,11 @@ struct DYLDINFO* loadDyldInfo(const char* path)
         goto failed;
     }
 
+    if (sb.st_size < sizeof(struct mach_header_64)) {
+        JBLogError("dyld file too small: %s", path);
+        goto failed;
+    }
+
     dyld = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE|MAP_RESILIENT_CODESIGN, fd, 0);
     if(dyld==MAP_FAILED) {
         JBLogError("mmap dyld failed: %d, %s", errno, strerror(errno));
@@ -307,6 +356,10 @@ struct DYLDINFO* loadDyldInfo(const char* path)
     JBLogDebug("dyld file map=%p", dyld);
 
     struct mach_header_64* header = (struct mach_header_64*)dyld;
+    if (!validateDyldImage(header, sb.st_size)) {
+        JBLogError("Invalid dyld Mach-O layout: %s", path);
+        goto failed;
+    }
 
     // load code signature before mmap text segment
     if(loadSinature(fd, header) != 0) {
@@ -320,6 +373,10 @@ struct DYLDINFO* loadDyldInfo(const char* path)
 
     bool hasZeroFill = false;
     analyzeSegmentsLayout(header, &result->vmSpaceSize, &hasZeroFill);
+    if (!result->vmSpaceSize) {
+        JBLogError("dyld image has no mapped segments: %s", path);
+        goto failed;
+    }
     JBLogDebug("vmSpace=%llx hasZeroFill=%d", result->vmSpaceSize, hasZeroFill);
 
     // reserve address range
@@ -438,8 +495,7 @@ struct DYLDINFO* loadDyldInfo(const char* path)
     goto final;
 
 failed:
-    if(result->imageAddress) vm_deallocate(mach_task_self(), (vm_address_t)result->imageAddress, result->vmSpaceSize);
-    free(result);
+    freeDyldInfo(result);
 	result = NULL;
 
 final:
@@ -596,11 +652,22 @@ int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
     static struct DYLDINFO* stockDyldInfo = NULL;
     static struct DYLDINFO* patchedDyldInfo = NULL;
 
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        assert((stockDyldInfo=loadDyldInfo("/usr/lib/dyld")) != NULL);
-        assert((patchedDyldInfo=loadDyldInfo(JBROOT_PATH("/basebin/gen/dyld"))) != NULL);
-    });
+    // Publish only a complete pair. Missing/stale generated loaders should
+    // return an error and permit a later retry, never abort launchd.
+    static pthread_mutex_t loaderLock = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&loaderLock);
+    if (!stockDyldInfo || !patchedDyldInfo) {
+        struct DYLDINFO *stock = loadDyldInfo("/usr/lib/dyld");
+        struct DYLDINFO *patched = stock ? loadDyldInfo(JBROOT_PATH("/basebin/gen/dyld")) : NULL;
+        if (stock && patched) {
+            stockDyldInfo = stock;
+            patchedDyldInfo = patched;
+        } else {
+            freeDyldInfo(stock);
+            freeDyldInfo(patched);
+        }
+    }
+    pthread_mutex_unlock(&loaderLock);
 
     if(stockDyldInfo == NULL || patchedDyldInfo == NULL) {
         JBLogError("load dyld failed");

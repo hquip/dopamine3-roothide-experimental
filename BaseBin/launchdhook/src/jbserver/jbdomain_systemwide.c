@@ -313,17 +313,21 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 			int old_uid = uid, old_gid = gid;
 
 			if ((sb.st_mode & (S_ISUID))) {
-				kwrite32(proc + koffsetof(proc, svuid), sb.st_uid);
 				uid = sb.st_uid;
 			}
 			if ((sb.st_mode & (S_ISGID))) {
-				kwrite32(proc + koffsetof(proc, svgid), sb.st_gid);
 				gid = sb.st_gid;
 			}
 
 			if (old_uid != uid || old_gid != gid) {
-				proc_ucred_update_content(proc, procPath, uid, gid, ruid, rgid, groups);
+				if (old_gid != gid) groups[0] = gid;
+				if (proc_ucred_update_content(proc, procPath, uid, gid, ruid, rgid, groups) != 0) {
+					JBLogError("Credential helper failed for %d (%s): %d", pid, procPath, errno);
+					return -1;
+				}
 			}
+			if (sb.st_mode & S_ISUID) kwrite32(proc + koffsetof(proc, svuid), sb.st_uid);
+			if (sb.st_mode & S_ISGID) kwrite32(proc + koffsetof(proc, svgid), sb.st_gid);
 
 			uint32_t flag = kread32(proc + koffsetof(proc, flag));
 			if ((flag & P_SUGID) != 0) {
@@ -596,17 +600,20 @@ static int systemwide_persona_fix(audit_token_t *callerToken, int childPid, uid_
 
 	if (overwriteUid != -1) {
 		uid = overwriteUid;
-		kwrite32(childProc + koffsetof(proc, svuid), uid);
 	}
 	if (overwriteGid != -1) {
 		gid = overwriteGid;
-		kwrite32(childProc + koffsetof(proc, svgid), gid);
 	}
 
 	if (old_uid != uid || old_gid != gid) {
 		if (old_gid != gid) groups[0] = gid;
-		proc_ucred_update_content(childProc, childProcPath, uid, gid, uid, gid, groups);
+		if (proc_ucred_update_content(childProc, childProcPath, uid, gid, uid, gid, groups) != 0) {
+			JBLogError("Persona credential helper failed for %d (%s): %d", childPid, childProcPath, errno);
+			return -1;
+		}
 	}
+	if (overwriteUid != -1) kwrite32(childProc + koffsetof(proc, svuid), uid);
+	if (overwriteGid != -1) kwrite32(childProc + koffsetof(proc, svgid), gid);
 
 	return 0;
 }

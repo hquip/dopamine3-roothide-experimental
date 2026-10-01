@@ -170,17 +170,20 @@ void dyldhook_init(uintptr_t kernelParams)
 
 		if (fd == -1) return;
 
-		setgid(gid);
-		setgid(gid);
-		setregid(rgid, -1);
 		int ngroups;
 		for (ngroups = 0; ngroups < NGROUPS_MAX; ngroups++) {
 			if (groups[ngroups] == -1) break;
 		}
-		setgroups(ngroups, groups);
-		setuid(uid);
-		setuid(uid);
-		setreuid(ruid, -1);
+		// A completion token certifies that every credential syscall succeeded.
+		// Never run the target executable or perform a launchd check-in here:
+		// launchd is waiting for this helper while handling the original request.
+		bool credentialsReady = setgid(gid) == 0
+			&& setgid(gid) == 0
+			&& setregid(rgid, -1) == 0
+			&& setgroups(ngroups, groups) == 0
+			&& setuid(uid) == 0
+			&& setuid(uid) == 0
+			&& setreuid(ruid, -1) == 0;
 
 		// if (gDyldHookLog) {
 		// 	uid_t uid  = getuid();
@@ -194,8 +197,11 @@ void dyldhook_init(uintptr_t kernelParams)
 		// 	_simple_dprintf(2, "gid  : real=%d  effective=%d\n", (int)gid,  (int)egid);
 		// }
 
-		char r = 0x42;
-		write(fd, &r, sizeof(r));
+		char r = credentialsReady ? 0x42 : 0;
+		if (write(fd, &r, sizeof(r)) != sizeof(r) && gDyldHookLog) {
+			_simple_dprintf(2, "Credential helper handshake write failed\n");
+		}
+		close(fd);
 
 		__asm("b .");
 	}

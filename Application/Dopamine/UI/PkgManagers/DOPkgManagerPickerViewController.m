@@ -8,10 +8,12 @@
 #import "DOPkgManagerPickerViewController.h"
 #import "DOPkgManagerPickerView.h"
 #import "DOEnvironmentManager.h"
+#import "DOUIManager.h"
+#import "DOAppOperationProgress.h"
 
 
 @interface DOPkgManagerPickerViewController ()
-
+@property (nonatomic) BOOL installationInProgress;
 @end
 
 @implementation DOPkgManagerPickerViewController
@@ -19,10 +21,22 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     DOPkgManagerPickerView *picker = [[DOPkgManagerPickerView alloc] initWithCallback:^(BOOL success) {
+        if (!success || self.installationInProgress) return;
+        self.installationInProgress = YES;
+        self.view.userInteractionEnabled = NO;
+        UIView *progress = DOShowAppOperationProgress(self.navigationController.view ?: self.view);
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [[DOEnvironmentManager sharedManager] reinstallPackageManagers];
+            NSError *error = [[DOEnvironmentManager sharedManager] reinstallPackageManagers];
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self.navigationController popViewControllerAnimated:YES];
+                [progress removeFromSuperview];
+                self.installationInProgress = NO;
+                self.view.userInteractionEnabled = YES;
+                if (error) {
+                    UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Button_Reinstall_Package_Managers") message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+                    [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Close") style:UIAlertActionStyleDefault handler:nil]];
+                    [self presentViewController:alert animated:YES completion:nil];
+                }
+                else [self.navigationController popViewControllerAnimated:YES];
             });
         });
     }];

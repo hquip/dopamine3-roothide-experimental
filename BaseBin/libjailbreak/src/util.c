@@ -2,7 +2,9 @@
 #include "primitives.h"
 #include "info.h"
 #include "kernel.h"
+#include "codesign.h"
 #include "translation.h"
+#include "credential_helper.h"
 #include <spawn.h>
 #include <mach/mach_time.h>
 #include <pthread.h>
@@ -1037,14 +1039,24 @@ void proc_copy_ucred(uint64_t procCopyFrom, uint64_t procCopyTo)
 	proc_ucred_update(procCopyTo, ucredToCopy);
 }
 
+static int credential_helper_patch(pid_t pid, void *context)
+{
+	(void)context;
+	uint64_t childProc = proc_find(pid);
+	if (!childProc) return ESRCH;
+	// START_SUSPENDED keeps the child at dyld's entrypoint. This is an
+	// internal credential helper, so patch it even with global dyld hooks off.
+	// Do not send a jailbreakd/check-in request while launchd handles check-in.
+	cs_allow_invalid(childProc, false);
+	proc_csflags_set(childProc, CS_GET_TASK_ALLOW);
+	proc_allow_all_syscalls(childProc);
+	proc_remove_msg_filter(childProc);
+	return proc_patch_dyld(pid) == 0 ? 0 : EIO;
+}
+
 int target_proc_with_ucred(const char *procPath, uid_t uid, gid_t gid, uid_t ruid, gid_t rgid, gid_t groups[NGROUPS_MAX])
 {
-	int comPipe[2];
-	pipe(comPipe);
-
-	posix_spawn_file_actions_t act;
-	posix_spawn_file_actions_init(&act);
-	posix_spawn_file_actions_adddup2(&act, comPipe[1], 3);
+	if (!procPath || !procPath[0] || !groups) { errno = EINVAL; return -1; }
 
 	char uidString[12];
 	snprintf(uidString, sizeof(uidString), "%d", uid);
@@ -1094,21 +1106,15 @@ int target_proc_with_ucred(const char *procPath, uid_t uid, gid_t gid, uid_t rui
 		NULL,
 	};
 
-	pid_t pid = 0;
-	int r = posix_spawn(&pid, procPath, &act, NULL, (char *const *)argv, (char *const *)envp);
-	posix_spawn_file_actions_destroy(&act);
-	if (r == 0) {
-		int r = 0;
-		read(comPipe[0], &r, sizeof(r));
-		close(comPipe[0]);
-		close(comPipe[1]);
-		return pid;
+	pid_t pid = -1;
+	int result = jb_credential_helper_start(procPath, (char *const *)argv,
+		(char *const *)envp, POSIX_SPAWN_START_SUSPENDED,
+		credential_helper_patch, NULL, JB_CREDENTIAL_HELPER_TIMEOUT_MS, &pid);
+	if (result != 0) {
+		errno = result;
+		return -1;
 	}
-
-	close(comPipe[0]);
-	close(comPipe[1]);
-
-	return -1;
+	return pid;
 }
 
 int proc_ucred_update_content(uint64_t proc, const char *procPath, uid_t uid, gid_t gid, uid_t ruid, gid_t rgid, gid_t groups[NGROUPS_MAX])
@@ -1120,10 +1126,20 @@ int proc_ucred_update_content(uint64_t proc, const char *procPath, uid_t uid, gi
 		}
 
 		uint64_t childProc = proc_find(childPid);
+		if (!childProc || !proc_ucred(childProc)) {
+			jb_credential_helper_stop(childPid);
+			errno = ESRCH;
+			return -1;
+		}
 		proc_copy_ucred(childProc, proc);
 
-		kill(childPid, SIGKILL);
-		cmd_wait_for_exit(childPid);
+		int cleanupResult = jb_credential_helper_stop(childPid);
+		if (cleanupResult != 0) {
+			// The credential copy already succeeded. Finish the audit-token
+			// update and let callers update saved IDs rather than reporting a
+			// misleading failed copy with partially applied credentials.
+			JBLogError("Credential helper cleanup failed for %d: %d", childPid, cleanupResult);
+		}
 	}
 	else {
 		uint64_t ucred = proc_ucred(proc);

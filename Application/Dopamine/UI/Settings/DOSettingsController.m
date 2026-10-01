@@ -20,6 +20,7 @@
 #import "DOSceneDelegate.h"
 #import "DOPSJetsamListItemsController.h"
 #import "DOButtonCell.h"
+#import "DOAppOperationProgress.h"
 
 @interface DOSettingsController ()
 
@@ -665,12 +666,16 @@
 
 - (void)refreshJailbreakAppsPressed
 {
-    [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
+    [self performAppOperationWithTitle:DOLocalizedString(@"Button_Refresh_Jailbreak_Apps") block:^{
+        return [[DOEnvironmentManager sharedManager] refreshJailbreakApps];
+    } successMessage:DOLocalizedString(@"Jailbreak_App_Operation_Success")];
 }
 
 - (void)rebuildIconCachePressed
 {
-    [[DOEnvironmentManager sharedManager] rebuildIconCache];
+    [self performAppOperationWithTitle:DOLocalizedString(@"Button_Rebuild_Icon_Cache") block:^{
+        return [[DOEnvironmentManager sharedManager] rebuildIconCache];
+    } successMessage:DOLocalizedString(@"Jailbreak_App_Operation_Success")];
 }
 
 - (void)reinstallPackageManagersPressed
@@ -680,14 +685,30 @@
 
 - (void)restoreJailbreakAppsPressed
 {
+    [self performAppOperationWithTitle:DOLocalizedString(@"Button_Restore_Jailbreak_Apps") block:^{
+        return [[DOEnvironmentManager sharedManager] reinstallAllBundledApps];
+    } successMessage:DOLocalizedString(@"Restore_Jailbreak_Apps_Success")];
+}
+
+- (void)performAppOperationWithTitle:(NSString *)title block:(NSError *(^)(void))operation successMessage:(NSString *)successMessage
+{
+    if (_appOperationInProgress) return;
+    _appOperationInProgress = YES;
+    self.view.userInteractionEnabled = NO;
+    UIView *progress = DOShowAppOperationProgress(self.navigationController.view ?: self.view);
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSError *error = [[DOEnvironmentManager sharedManager] reinstallAllBundledApps];
+        NSError *error = operation();
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSString *message = error ? error.localizedDescription : DOLocalizedString(@"Restore_Jailbreak_Apps_Success");
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Button_Restore_Jailbreak_Apps") message:message preferredStyle:UIAlertControllerStyleAlert];
+            [progress removeFromSuperview];
+            DOSettingsController *controller = weakSelf;
+            if (!controller) return;
+            controller->_appOperationInProgress = NO;
+            controller.view.userInteractionEnabled = YES;
+            NSString *message = error ? error.localizedDescription : successMessage;
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Close") style:UIAlertActionStyleDefault handler:nil]];
-            [weakSelf presentViewController:alert animated:YES completion:nil];
+            [controller presentViewController:alert animated:YES completion:nil];
         });
     });
 }

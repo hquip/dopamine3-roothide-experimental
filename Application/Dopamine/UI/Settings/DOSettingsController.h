@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 
     PSSpecifier *_customBootlogoEnabledSpecifier;
     PSSpecifier *_customBootlogoSpecifier;
+    BOOL _appOperationInProgress;
 }
 
 @end

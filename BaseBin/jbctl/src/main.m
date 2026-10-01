@@ -3,6 +3,7 @@
 #import <libjailbreak/jbclient_mach.h>
 #import <libjailbreak/stock_fixes.h>
 #import "internal.h"
+#import "parent_wait.h"
 
 #import <Foundation/Foundation.h>
 #import <CoreServices/LSApplicationProxy.h>
@@ -25,6 +26,26 @@ Available commands:\n\
 
 int main(int argc, char* argv[])
 {
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	// Preserve the upstream credential acquisition order. setuid creates this
+	// helper's permanent credentials before the parent drops its temporary root;
+	// the requested command still waits for the parent's cleanup token below.
+	if (getuid() != 0 && geteuid() == 0) {
+		if (setuid(0) != 0) {
+			fprintf(stderr, "ERROR: Failed to acquire real root UID: %s\n", strerror(errno));
+			return 1;
+		}
+	}
+	int parentWaitError = jbctl_consume_parent_wait(&argc, argv, 10000);
+	if (parentWaitError != 0) {
+		fprintf(stderr, "ERROR: Parent credential cleanup handshake failed: %s\n", strerror(parentWaitError));
+		return 1;
+	}
+	if (argc < 2) {
+		print_usage();
+		return 1;
+	}
+
 	if (!strcmp(argv[argc-1], "earlyboot")) {
 		// If jbctl is spawned in "early boot" state, the jbserver port needs to be obtained from registeredPorts[0] instead
 		mach_port_t *registeredPorts;
@@ -36,29 +57,6 @@ int main(int argc, char* argv[])
 				mach_port_deallocate(mach_task_self(), registeredPorts[i]);
 			}
 			vm_deallocate(mach_task_self(), (vm_address_t)registeredPorts, registeredPortsCount * sizeof(mach_port_t));
-		}
-	}
-
-	setvbuf(stdout, NULL, _IOLBF, 0);
-	if (argc < 2) {
-		print_usage();
-		return 1;
-	}
-
-	if (getuid() != 0 && geteuid() == 0) {
-		// When jailbroken the Dopamine app cannot have uid 0 because it can't drop it anymore without loosing it
-		// So in some cases (e.g. for spawning dpkg) we need to use jbctl to get it
-		setuid(0);
-	}
-
-	if (argc > 2) {
-		if (!strcmp(argv[argc-2], "--waitfor")) {
-			// When the Dopamine app spawns jbctl it needs to clean up it's own ucred before jbctl does the requested action
-			// For this it will attach a pipe fd and write to it once the cleanup is done, so we need to wait until that write happens
-			int fd = atoi(argv[argc-1]);
-			int r = 0;
-			read(fd, &r, sizeof(r));
-			close(fd);
 		}
 	}
 

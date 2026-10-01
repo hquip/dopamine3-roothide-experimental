@@ -10,6 +10,9 @@
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const bootstrapErrorDomain;
+// Metadata for the app packages shipped in this build, shared by installation
+// and registration verification. This is independent of LaunchServices state.
+NSArray<NSDictionary<NSString *, NSString *> *> *DOBundledJailbreakApps(void);
 typedef NS_ENUM(NSInteger, BootstrapErrorCode) {
     BootstrapErrorCodeFailedToGetURL            = -1,
     BootstrapErrorCodeFailedToDownload          = -2,
@@ -26,6 +29,7 @@ typedef NS_ENUM(NSInteger, BootstrapErrorCode) {
 - (int)installPackage:(NSString *)packagePath;
 - (NSError *)installPackageManagers;
 - (NSError *)installAllBundledApps;
+- (nullable NSError *)verifyBundledApp:(NSDictionary<NSString *, NSString *> *)app;
 - (NSError *)finalizeBootstrap;
 - (NSError *)deleteBootstrap;
 

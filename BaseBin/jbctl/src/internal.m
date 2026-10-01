@@ -3,6 +3,8 @@
 #import <libjailbreak/libjailbreak.h>
 #import <sys/mount.h>
 #import <libjailbreak/stock_fixes.h>
+#import <errno.h>
+#import <stdlib.h>
 
 SInt32 CFUserNotificationDisplayAlert(CFTimeInterval timeout, CFOptionFlags flags, CFURLRef iconURL, CFURLRef soundURL, CFURLRef localizationURL, CFStringRef alertHeader, CFStringRef alertMessage, CFStringRef defaultButtonTitle, CFStringRef alternateButtonTitle, CFStringRef otherButtonTitle, CFOptionFlags *responseFlags) API_AVAILABLE(ios(3.0));
 
@@ -201,12 +203,49 @@ if(access(JBROOT_PATH("/.disable_auto_uicache"), F_OK) == 0) {
 
 		exec_cmd(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
 	}
+	else if (!strcmp(command, "run_tool")) {
+		if (getuid() != 0 || geteuid() != 0 || argc < 2) {
+			fprintf(stderr, "ERROR: run_tool requires root and a tool path\n");
+			return 1;
+		}
+		const char *rootPath = get_jbroot();
+		char realRoot[PATH_MAX], realTool[PATH_MAX];
+		if (!rootPath || rootPath[0] != '/' || !realpath(rootPath, realRoot) || !realpath(argv[1], realTool)) {
+			fprintf(stderr, "ERROR: Invalid jailbreak root or tool: %s\n", strerror(errno));
+			return 1;
+		}
+		const char *allowedTools[] = { "/usr/bin/dpkg", "/usr/bin/uicache", "/basebin/jbctl" };
+		bool allowed = false;
+		for (size_t i = 0; i < sizeof(allowedTools) / sizeof(allowedTools[0]); i++) {
+			char expected[PATH_MAX], resolved[PATH_MAX];
+			int length = snprintf(expected, sizeof(expected), "%s%s", realRoot, allowedTools[i]);
+			if (length > 0 && length < sizeof(expected) && realpath(expected, resolved) && !strcmp(resolved, realTool)) {
+				// Reject a symlink escaping the active bootstrap, even for a known name.
+				size_t rootLength = strlen(realRoot);
+				allowed = !strncmp(realTool, realRoot, rootLength) && realTool[rootLength] == '/';
+				if (allowed) break;
+			}
+		}
+		if (!allowed) {
+			fprintf(stderr, "ERROR: Tool is outside the active bootstrap or is not a recovery tool\n");
+			return 1;
+		}
+		extern char **environ;
+		execve(realTool, &argv[1], environ);
+		fprintf(stderr, "ERROR: Cannot execute recovery tool: %s\n", strerror(errno));
+		return 1;
+	}
 	else if (!strcmp(command, "install_pkg")) {
+		if (getuid() != 0 || geteuid() != 0) {
+			fprintf(stderr, "ERROR: install_pkg requires root\n");
+			return 1;
+		}
 		if (argc > 1) {
 			extern char **environ;
 			const char *dpkg = JBROOT_PATH("/usr/bin/dpkg");
-			int r = execve(dpkg, (char *const *)(const char *[]){dpkg, "-i", argv[1], NULL}, environ);
-			return r;
+			execve(dpkg, (char *const *)(const char *[]){dpkg, "-i", argv[1], NULL}, environ);
+			fprintf(stderr, "ERROR: Cannot execute dpkg: %s\n", strerror(errno));
+			return 1;
 		}
 		return -1;
 	}

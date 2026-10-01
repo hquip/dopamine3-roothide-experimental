@@ -53,6 +53,27 @@ jobs:
           packages: ldid findutils sed coreutils make dpkg zstd
           cache: 'false'
 
+      - name: Test credential and parent cleanup handshakes
+        run: |
+          set -euo pipefail
+          unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+          mkdir -p .port-build/tests
+          for test in credential_helper_regression jbctl_parent_wait_regression; do
+            xcrun --sdk macosx clang -std=gnu11 -Wall -Wextra -Werror \
+              -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+              "tests/${test}.c" -o ".port-build/tests/${test}" \
+              2>&1 | tee ".port-build/logs/${test}-build.log"
+            ".port-build/tests/${test}" 2>&1 | tee ".port-build/logs/${test}.log"
+          done
+          python3 scripts/test_runtime_safety.py \
+            2>&1 | tee .port-build/logs/runtime-safety.log
+          xcrun --sdk macosx clang -fobjc-arc -framework Foundation \
+            -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            tests/dpkg_status.m -o .port-build/tests/dpkg-status-test \
+            2>&1 | tee .port-build/logs/dpkg-status-build.log
+          .port-build/tests/dpkg-status-test \
+            2>&1 | tee .port-build/logs/dpkg-status-test.log
+
       - name: Set up the macOS build dependencies
         run: bash scripts/setup_macos.sh 2>&1 | tee .port-build/logs/setup.log
 
@@ -106,6 +127,7 @@ jobs:
             .ci/dependencies.json
             PORTING.md
             DEVICE_VALIDATION.md
+            FIXES_PORT12.md
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

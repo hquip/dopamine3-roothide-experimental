@@ -17,6 +17,17 @@
 #import <dispatch/dispatch.h>
 #import <sys/stat.h>
 #import "NSString+Version.h"
+#import "DODpkgStatus.h"
+#import <errno.h>
+
+NSArray<NSDictionary<NSString *, NSString *> *> *DOBundledJailbreakApps(void)
+{
+    return @[
+        @{@"Name": @"Sileo", @"Package": @"sileo.deb", @"Identifier": @"org.coolstar.sileo", @"App": @"Sileo.app", @"BundleIdentifier": @"org.coolstar.SileoStore"},
+        @{@"Name": @"Zebra", @"Package": @"zebra.deb", @"Identifier": @"xyz.willy.zebra", @"App": @"Zebra.app", @"BundleIdentifier": @"xyz.willy.Zebra"},
+        @{@"Name": @"RootHide Manager", @"Package": @"roothideapp.deb", @"Identifier": @"com.roothide.manager", @"App": @"RootHide.app", @"BundleIdentifier": @"com.roothide.manager"}
+    ];
+}
 
 #define LIBKRW_DOPAMINE_BUNDLED_VERSION @"2.0.3"
 #define LIBROOT_DOPAMINE_BUNDLED_VERSION @"1.0.1"
@@ -396,13 +407,16 @@ int getCFMajorVersion(void)
 
 - (int)installPackage:(NSString *)packagePath
 {
+    const char *root = jbinfo(rootPath);
+    if (!root || !root[0] || root[0] != '/') return -ENOENT;
+    if (![[NSFileManager defaultManager] isReadableFileAtPath:packagePath]) return -ENOENT;
     if (getuid() == 0) {
         return exec_cmd_trusted(JBROOT_PATH("/usr/bin/dpkg"), "-i", packagePath.fileSystemRepresentation, NULL);
     }
     else {
-        // idk why but waitpid sometimes fails and this returns -1, so we just ignore the return value
-        exec_cmd(JBROOT_PATH("/basebin/jbctl"), "internal", "install_pkg", packagePath.fileSystemRepresentation, NULL);
-        return 0;
+        // Gate the requested dpkg action on successful parent credential
+        // cleanup, using the existing Dopamine 3 helper handshake.
+        return [[DOEnvironmentManager sharedManager] spawnJbctlAsRootWithArgs:@[@"internal", @"install_pkg", packagePath]];
     }
 }
 
@@ -414,21 +428,46 @@ int getCFMajorVersion(void)
 - (NSString *)installedVersionForPackageWithIdentifier:(NSString *)identifier
 {
     NSString *dpkgStatus = [NSString stringWithContentsOfFile:JBROOT_PATH(@"/var/lib/dpkg/status") encoding:NSUTF8StringEncoding error:nil];
-    NSString *packageStartLine = [NSString stringWithFormat:@"Package: %@", identifier];
+    return DODpkgInstalledRecord(dpkgStatus, identifier)[@"Version"];
+}
 
-    NSArray *packageInfos = [dpkgStatus componentsSeparatedByString:@"\n\n"];
-    for (NSString *packageInfo in packageInfos) {
-        if ([packageInfo hasPrefix:packageStartLine]) {
-            __block NSString *version = nil;
-            [packageInfo enumerateLinesUsingBlock:^(NSString * _Nonnull line, BOOL * _Nonnull stop) {
-                if ([line hasPrefix:@"Version: "]) {
-                    version = [line substringFromIndex:9];
-                }
-            }];
-            return version;
-        }
-    }
-    return nil;
+- (NSError *)verifyBundledApp:(NSDictionary<NSString *, NSString *> *)app
+{
+    __block NSError *error = nil;
+    DOEnvironmentManager *environment = [DOEnvironmentManager sharedManager];
+    NSError *rootError = [environment runAsRootChecked:^{
+        NSError *sandboxError = [environment runUnsandboxedChecked:^{
+            const char *root = jbinfo(rootPath);
+            if (!root || !root[0] || root[0] != '/') {
+                error = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey: @"Verify apps: the jailbreak root is unavailable."}];
+                return;
+            }
+            NSString *statusPath = JBROOT_PATH(@"/var/lib/dpkg/status");
+            NSError *readError = nil;
+            NSString *status = [NSString stringWithContentsOfFile:statusPath encoding:NSUTF8StringEncoding error:&readError];
+            if (!status || !DODpkgInstalledRecord(status, app[@"Identifier"])) {
+                error = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Verify %@: dpkg does not report a fully installed package (%@). %@", app[@"Name"], app[@"Identifier"], readError.localizedDescription ?: @""]}];
+                return;
+            }
+            NSString *path = [JBROOT_PATH(@"/Applications") stringByAppendingPathComponent:app[@"App"]];
+            NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[path stringByAppendingPathComponent:@"Info.plist"]];
+            NSString *executable = info[@"CFBundleExecutable"];
+            if (![info[@"CFBundleIdentifier"] isEqual:app[@"BundleIdentifier"]] ||
+                ![executable isKindOfClass:[NSString class]] || !executable.length ||
+                ![executable.lastPathComponent isEqual:executable] ||
+                [executable isEqualToString:@"."] || [executable isEqualToString:@".."]) {
+                error = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Verify %@: missing or invalid Info.plist at %@.", app[@"Name"], path]}];
+                return;
+            }
+            struct stat st;
+            NSString *executablePath = [path stringByAppendingPathComponent:executable];
+            if (stat(executablePath.fileSystemRepresentation, &st) != 0 || !S_ISREG(st.st_mode) || !(st.st_mode & 0111) || st.st_size == 0) {
+                error = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Verify %@: the app executable is missing or not executable at %@.", app[@"Name"], executablePath]}];
+            }
+        }];
+        if (sandboxError) error = sandboxError;
+    }];
+    return rootError ?: error;
 }
 
 - (NSError *)installPackageManagers
@@ -441,27 +480,29 @@ int getCFMajorVersion(void)
         if (r != 0) {
             return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install %@: %d\n", name, r]}];
         }
+        for (NSDictionary *app in DOBundledJailbreakApps()) {
+            if ([app[@"Package"] isEqualToString:packageManagerDict[@"Package"]]) {
+                NSError *error = [self verifyBundledApp:app];
+                if (error) return error;
+            }
+        }
     }
     return nil;
 }
 
 - (NSError *)installAllBundledApps
 {
-    for (NSDictionary *packageManagerDict in [[DOUIManager sharedInstance] availablePackageManagers]) {
-        NSString *path = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:packageManagerDict[@"Package"]];
+    for (NSDictionary *app in DOBundledJailbreakApps()) {
+        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Installing %@", app[@"Name"]] debug:NO];
+        NSString *path = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:app[@"Package"]];
         int ret = [self installPackage:path];
         if (ret != 0) {
             return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{
-                NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install %@: %d", packageManagerDict[@"Display Name"], ret]
+                NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Install %@ failed: %@ %d.", app[@"Name"], ret < 0 ? @"spawn/wait error" : @"helper exit status", ret]
             }];
         }
-    }
-    NSString *rootHide = [[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"roothideapp.deb"];
-    int ret = [self installPackage:rootHide];
-    if (ret != 0) {
-        return [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedFinalising userInfo:@{
-            NSLocalizedDescriptionKey : [NSString stringWithFormat:@"Failed to install RootHide Manager: %d", ret]
-        }];
+        NSError *error = [self verifyBundledApp:app];
+        if (error) return error;
     }
     return nil;
 }

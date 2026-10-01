@@ -13,6 +13,7 @@
 #include "jailbreakd.h"
 #include "common.h"
 #include "log.h"
+#include "process_identity.h"
 
 #ifdef ENABLE_LOGS
 static void (*JBDLogDebugFunction)(const char *format, ...);
@@ -410,15 +411,25 @@ int jbdSystemwideLog(const char* fmt, ...)
 
 int jbdSpawnPatchChild(int pid, bool resume)
 {
+	if (pid <= 0) return EINVAL;
+	uint64_t childUniqueID = roothide_process_unique_id(pid);
+	if (childUniqueID == 0) return ESRCH;
+
 	xpc_object_t message = xpc_dictionary_create_empty();
 	xpc_dictionary_set_uint64(message, "id", JBD_MSG_SPAWN_PATCH_CHILD);
 	xpc_dictionary_set_int64(message, "pid", pid);
+	// A late request after timeout must not target a different process that
+	// inherited this PID, even when both processes were children of launchd.
+	xpc_dictionary_set_uint64(message, "child-unique-id", childUniqueID);
 	xpc_dictionary_set_bool(message, "resume", resume);
 	xpc_object_t reply = jailbreakdXpcRequestWithTimeout(message, 10 * NSEC_PER_SEC);
 	xpc_release(message);
 	int64_t result = -1;
 	if (reply) {
-		result  = xpc_dictionary_get_int64(reply, "result");
+		xpc_object_t resultValue = xpc_get_type(reply) == XPC_TYPE_DICTIONARY ? xpc_dictionary_get_value(reply, "result") : NULL;
+		if (resultValue && xpc_get_type(resultValue) == XPC_TYPE_INT64) {
+			result = xpc_int64_get_value(resultValue);
+		}
 		xpc_release(reply);
 	} else {
 		JBLogError("jbdSpawnPatchChild timed out or failed for pid %d", pid);

@@ -51,7 +51,7 @@
 "Button_Refresh_Jailbreak_Apps" = "刷新越狱 App";
 "Button_Rebuild_Icon_Cache" = "重建图标缓存";
 "Button_Restore_Jailbreak_Apps" = "恢复全部越狱 App";
-"Restore_Jailbreak_Apps_Success" = "已重装 RootHide、Sileo、Zebra，并刷新图标缓存。";
+"Restore_Jailbreak_Apps_Success" = "已核验 RootHide、Sileo、Zebra 的安装状态、应用文件及系统注册。";
 "Button_Reinstall_Package_Managers" = "重新安装包管理器";
 "Button_Change_Mobile_Password" = "修改 “mobile” 密码";
 
@@ -133,3 +133,7 @@
 
 "Experimental_RootHide_Port" = "实验移植，尚未验证";
 "Experimental_RootHide_Port_Details" = "基于 Dopamine 3.0.10 的 RootHide 实验移植。设备兼容性和越狱检测隐藏效果尚未验证，此构建已停用在线更新。";
+
+"Jailbreak_App_Operation_Success" = "操作已成功完成。";
+"Jailbreak_App_Operation_Working" = "正在处理…";
+"Recovery_Runtime_Version_Mismatch" = "当前运行的越狱版本是 %@，此应用版本是 %@。请完整重启 iPhone，再使用更新后的 Dopamine 激活越狱，然后恢复应用。";

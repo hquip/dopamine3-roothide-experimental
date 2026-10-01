@@ -5,6 +5,7 @@
 #include <libgen.h>
 #include <sys/sysctl.h>
 #include <sys/proc_info.h>
+#include <libjailbreak/roothider/spawn_cleanup.h>
 
 #include <litehook.h>
 
@@ -300,7 +301,7 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	pid_t pidval = 0;
 	if (!pidp) pidp = &pidval;
 	int ret = __posix_spawn_inline(pidp, path, desc, argv, envc);
-	pid_t pid = *pidp;
+	pid_t pid = ret == 0 ? *pidp : 0;
 
 	envbuf_free(envc);
 
@@ -312,9 +313,8 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	} else if (ret == 0 && pid > 0) {
 		if (should_suspend) {
 			if(jbdSpawnPatchChild(pid, should_resume) != 0) { // jdb fault? kill
-				//just kill it instead of letting it hang forever, and the requester decides what to do later
-				kill(pid, SIGQUIT); //core dump
-				kill(pid, SIGKILL);
+				roothide_kill_and_reap_child(pid);
+				*pidp = 0;
 				return 202;
 			}
 		}

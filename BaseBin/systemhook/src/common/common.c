@@ -16,6 +16,7 @@
 #include <libjailbreak/util.h>
 #include <libjailbreak/jbroot.h>
 #include <libjailbreak/hookd.h>
+#include <libjailbreak/roothider/spawn_cleanup.h>
 #include <libkern/OSCacheControl.h>
 
 bool string_has_prefix(const char *str, const char* prefix)
@@ -151,6 +152,32 @@ kSpawnConfig spawn_config_for_executable(const char* path, char *const argv[rest
 // 3. Increase Jetsam limit to more sane value (Multipler defined as JETSAM_MULTIPLIER)
 // 4. Fix spawning as root via persona entitlement on iOS 17.6+
 
+static void restore_persona_spawn_attributes(posix_spawnattr_t *attr, struct _posix_spawn_persona_info *info, int uid, int gid, short flags)
+{
+	if (!info) return;
+	if (uid == 0) info->pspi_uid = 0;
+	if (gid == 0) info->pspi_gid = 0;
+	posix_spawnattr_setflags(attr, flags);
+}
+
+static int finish_persona_spawn(int spawnResult, pid_t childPid, int uid, int gid, bool needsResume)
+{
+	if (spawnResult != 0 || (uid != 0 && gid != 0)) return spawnResult;
+	if (childPid <= 0) return ECHILD;
+	if (jbclient_persona_fix(childPid, uid, gid) != 0) {
+		// Never run with mobile credentials after a failed root request, or
+		// expose a suspended child as a successful spawn.
+		roothide_kill_and_reap_child(childPid);
+		return EIO;
+	}
+	if (needsResume && kill(childPid, SIGCONT) != 0) {
+		int resumeError = errno;
+		roothide_kill_and_reap_child(childPid);
+		return resumeError;
+	}
+	return spawnResult;
+}
+
 static int spawn_exec_hook_common(bool isExec,
 						   const char *path,
 						   char *const argv[restrict],
@@ -167,6 +194,8 @@ static int spawn_exec_hook_common(bool isExec,
 	bool personaFixNeedsResume = true;
 	int personaFixUid = -1;
 	int personaFixGid = -1;
+	struct _posix_spawn_persona_info *personaFixInfo = NULL;
+	short personaOriginalFlags = 0;
 	posix_spawnattr_t attr = NULL;
 	if (desc) attr = desc->attrp;
 
@@ -277,6 +306,8 @@ static int spawn_exec_hook_common(bool isExec,
 				}
 
 				if (personaFixUid == 0 || personaFixGid == 0) {
+					personaFixInfo = personaInfo;
+					personaOriginalFlags = flags;
 					// Revert any request to become root back to mobile
 					// Otherwise posix_spawn will straight up fail
 					if (personaFixUid == 0) personaInfo->pspi_uid = 501;
@@ -353,14 +384,8 @@ static int spawn_exec_hook_common(bool isExec,
 		envbuf_free(envc);
 	}
 
-	if (personaFixUid == 0 || personaFixGid == 0 && childPid != -1) {
-		jbclient_persona_fix(childPid, personaFixUid, personaFixGid);
-		if (personaFixNeedsResume) {
-			kill(childPid, SIGCONT);
-		}
-	}
-
-	return r;
+	restore_persona_spawn_attributes(&attr, personaFixInfo, personaFixUid, personaFixGid, personaOriginalFlags);
+	return finish_persona_spawn(r, childPid, personaFixUid, personaFixGid, personaFixNeedsResume);
 }
 
 int posix_spawn_hook_shared(pid_t *restrict pid, 

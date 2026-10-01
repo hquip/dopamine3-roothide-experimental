@@ -1,9 +1,15 @@
 #include <Foundation/Foundation.h>
 #include <bsm/libbsm.h>
 #include <libproc.h>
+#include <errno.h>
 
 #include <libjailbreak/libjailbreak.h>
 #include <libjailbreak/roothider.h>
+
+static bool child_patch_identity_matches(pid_t clientPid, pid_t childPid, pid_t parentPid, uint64_t expectedUniqueID, uint64_t currentUniqueID)
+{
+	return clientPid > 0 && childPid > 0 && parentPid == clientPid && expectedUniqueID != 0 && currentUniqueID == expectedUniqueID;
+}
 
 static dispatch_queue_t execPatchRequestQueue(void)
 {
@@ -78,18 +84,23 @@ void jailbreakd_received_message(mach_port_t port)
 				}
 
 				case JBD_MSG_SPAWN_PATCH_CHILD: {
-					int64_t result = 0;
+					int64_t result = ESRCH;
 					pid_t pid = xpc_dictionary_get_int64(message, "pid");
+					uint64_t childUniqueID = xpc_dictionary_get_uint64(message, "child-unique-id");
 					bool resume = xpc_dictionary_get_bool(message, "resume");
 					pid_t ppid = proc_get_ppid(pid);
 					JBLogDebug("spawn patch: client pid=%d, child pid=%d, child's parent pid=%d, child proc=%s", clientPid, pid, ppid, proc_get_path(pid,NULL));
-					if(ppid == clientPid) {
+					uint64_t currentUniqueID = pid > 0 ? proc_get_uniqueid(pid) : 0;
+					if(child_patch_identity_matches(clientPid, pid, ppid, childUniqueID, currentUniqueID)) {
 						if(ppid==1 && resume==false) {
 							//`frida -f` sucks with proc_patch_dyld on ios15
 							result = proc_patch_csflags(pid);
 						}
 						else if(roothide_patch_proc(pid) == 0) {
-							if(resume) kill(pid, SIGCONT);
+							result = 0;
+							// Revalidate after patching too: never resume a replacement PID.
+							if (proc_get_uniqueid(pid) != childUniqueID) result = ESRCH;
+							else if (resume && kill(pid, SIGCONT) != 0) result = errno;
 						} else {
 							JBLogError("spawn patch failed: %d", pid);
 							result = -1;
