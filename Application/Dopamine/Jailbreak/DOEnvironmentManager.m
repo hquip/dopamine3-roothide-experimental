@@ -6,6 +6,7 @@
 //
 
 #import "DOEnvironmentManager.h"
+#import "DOAppRegistration.h"
 #import "UIImage+JPEG2000.h"
 
 #import <sys/sysctl.h>
@@ -518,7 +519,7 @@ static int DOHelperExitStatus(int status)
         NSString *diagnostic = [[NSString alloc] initWithData:data ?: [NSData data] encoding:NSUTF8StringEncoding];
         if (!diagnostic && data.length) diagnostic = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
         diagnostic = [diagnostic stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (status && diagnostic.length) {
+        if (diagnostic.length) {
             [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"] = diagnostic;
             [[DOUIManager sharedInstance] sendLog:diagnostic debug:NO];
         }
@@ -964,7 +965,7 @@ static int DOHelperExitStatus(int status)
 - (NSError *)validateRecoveryEnvironment
 {
     if (![self isJailbroken]) return DORecoveryError(@"Check environment", -ENOTCONN, @"The jailbreak is not active.");
-    NSString *expectedVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"DORootHidePortVersion"];
+    NSString *expectedVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"DORootHideRuntimeVersion"] ?: [[NSBundle mainBundle] objectForInfoDictionaryKey:@"DORootHidePortVersion"];
     expectedVersion = [expectedVersion stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     NSString *activeVersion = [self.jailbrokenVersion stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     // Installing the app alone does not replace the running basebin helpers.
@@ -1006,25 +1007,45 @@ static int DOHelperExitStatus(int status)
     if (!root) return DORecoveryError(@"Register apps", -ENOENT, @"The jailbreak root is unavailable.");
     NSString *uicache = [root stringByAppendingPathComponent:@"usr/bin/uicache"];
     for (NSDictionary *app in apps) {
+        NSString *virtualPath = DOVirtualBundledAppPath(app[@"App"]);
+        if (!virtualPath) return DORecoveryError(@"Register apps", -EINVAL, @"The bundled app name is invalid.");
         NSString *path = [[root stringByAppendingPathComponent:@"Applications"] stringByAppendingPathComponent:app[@"App"]];
-        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Registering %@ at %@", app[@"Name"], path] debug:NO];
-        int status = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-p", path]];
-        if (status) return DORecoveryError(@"Register apps", status, [NSString stringWithFormat:@"uicache failed for %@. %@", app[@"Name"], [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"] ?: @""]);
-
-        // A zero exit status alone is not evidence of a visible/registered app.
-        __block NSError *verificationError = nil;
+        __block NSString *expectedPath = nil;
+        __block NSError *pathError = nil;
         NSError *privilegeError = [self runAsRootChecked:^{
-            NSError *sandboxError = [self runUnsandboxedChecked:^{
-                LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
-                NSString *registeredPath = [proxy.bundleURL.path stringByResolvingSymlinksInPath].stringByStandardizingPath;
-                NSString *expectedPath = [path stringByResolvingSymlinksInPath].stringByStandardizingPath;
-                if (!proxy.installed || ![registeredPath isEqualToString:expectedPath]) {
-                    verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered at %@ (reported path: %@).", app[@"Name"], path, registeredPath ?: @"none"]);
-                }
+            pathError = [self runUnsandboxedChecked:^{
+                expectedPath = DOCanonicalRegistrationPath([path stringByResolvingSymlinksInPath]);
             }];
-            if (sandboxError) verificationError = sandboxError;
         }];
-        if (privilegeError || verificationError) return privilegeError ?: verificationError;
+        if (privilegeError || pathError) return privilegeError ?: pathError;
+        if (!expectedPath) return DORecoveryError(@"Register apps", -EINVAL, @"The expected app path is invalid.");
+        [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Registering %@ at %@", app[@"Name"], path] debug:NO];
+        int status = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-p", virtualPath]];
+        NSString *diagnostic = [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"];
+        if (DOUICacheRegistrationFailed(status, diagnostic)) return DORecoveryError(@"Register apps", status ?: -EIO, [NSString stringWithFormat:@"uicache failed for %@. %@", app[@"Name"], diagnostic ?: @""]);
+
+        // Root queries can see a different LS registration view. Verify after
+        // all root scopes exit, and keep other threads from changing process
+        // credentials while LaunchServices queries as the mobile app user.
+        __block NSError *verificationError = nil;
+        NSRecursiveLock *privilegeLock = DOPrivilegeLock();
+        [privilegeLock lock];
+        @try {
+            if (DOPrivilegeCleanupFailed || geteuid() != 501) {
+                verificationError = DORecoveryError(@"Verify registration", -EPERM, @"LaunchServices verification requires restored mobile credentials; close and reopen Dopamine.");
+            }
+            else {
+                // This only reads LS metadata and compares strings. Do not
+                // request a root-only MAC-label change from a mobile client.
+                LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
+                NSString *registeredPath = proxy.bundleURL.path;
+                if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
+                    verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+                }
+            }
+        }
+        @finally { [privilegeLock unlock]; }
+        if (verificationError) return verificationError;
     }
     // Do not rebuild all LaunchServices databases here. It can remove valid
     // registrations and used to hide the actual installation failure.

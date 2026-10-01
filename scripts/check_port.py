@@ -47,6 +47,10 @@ def main():
     version = (root / 'BaseBin/_external/basebin/.version').read_text().strip()
     if not re.fullmatch(r'3\.0\.10-roothide-port\.\d+', version):
         errors.append('Missing experimental port version identifier.')
+    app_info = plistlib.loads((root / 'Application/Dopamine/Info.plist').read_bytes())
+    runtime_version = app_info.get('DORootHideRuntimeVersion')
+    if runtime_version is not None and runtime_version != version:
+        errors.append('The app-required runtime version must match the bundled basebin.')
 
     # These are the reviewed tag27 RootHide resources, not the ordinary
     # Procursus iOS bootstrap downloaded by the original Dopamine workflow.

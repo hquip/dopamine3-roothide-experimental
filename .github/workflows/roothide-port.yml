@@ -73,6 +73,12 @@ jobs:
             2>&1 | tee .port-build/logs/dpkg-status-build.log
           .port-build/tests/dpkg-status-test \
             2>&1 | tee .port-build/logs/dpkg-status-test.log
+          xcrun --sdk macosx clang -fobjc-arc -framework Foundation \
+            -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            tests/app_registration.m -o .port-build/tests/app-registration-test \
+            2>&1 | tee .port-build/logs/app-registration-build.log
+          .port-build/tests/app-registration-test \
+            2>&1 | tee .port-build/logs/app-registration-test.log
 
       - name: Set up the macOS build dependencies
         run: bash scripts/setup_macos.sh 2>&1 | tee .port-build/logs/setup.log
@@ -128,6 +134,7 @@ jobs:
             PORTING.md
             DEVICE_VALIDATION.md
             FIXES_PORT12.md
+            FIXES_PORT13.md
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14
