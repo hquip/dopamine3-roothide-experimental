@@ -89,6 +89,9 @@ static const char *xpc_dictionary_get_string(xpc_object_t reply, const char *key
     assert(strcmp(key, "root-path") == 0); return reply->path;
 }
 static void xpc_release(xpc_object_t reply) { (void)reply; }
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_strlcpy
 static size_t strlcpy(char *to, const char *from, size_t limit) {
     size_t length = strlen(from);
