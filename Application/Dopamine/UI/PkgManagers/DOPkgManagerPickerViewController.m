@@ -9,7 +9,7 @@
 #import "DOPkgManagerPickerView.h"
 #import "DOEnvironmentManager.h"
 #import "DOUIManager.h"
-#import "DOAppOperationProgress.h"
+#import "../DOAppOperationProgress.h"
 
 
 @interface DOPkgManagerPickerViewController ()

@@ -20,7 +20,7 @@
 #import "DOSceneDelegate.h"
 #import "DOPSJetsamListItemsController.h"
 #import "DOButtonCell.h"
-#import "DOAppOperationProgress.h"
+#import "../DOAppOperationProgress.h"
 
 @interface DOSettingsController ()
 
