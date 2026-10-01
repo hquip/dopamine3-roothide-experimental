@@ -67,6 +67,8 @@ jobs:
           done
           python3 scripts/test_runtime_safety.py \
             2>&1 | tee .port-build/logs/runtime-safety.log
+          python3 scripts/test_dyld_entry.py \
+            2>&1 | tee .port-build/logs/dyld-entry.log
           xcrun --sdk macosx clang -fobjc-arc -framework Foundation \
             -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
             tests/dpkg_status.m -o .port-build/tests/dpkg-status-test \
@@ -135,6 +137,7 @@ jobs:
             DEVICE_VALIDATION.md
             FIXES_PORT12.md
             FIXES_PORT13.md
+            FIXES_PORT14.md
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

@@ -12,6 +12,7 @@
 #include "../libjailbreak.h"
 #include "common.h"
 #include "log.h"
+#include "dyld_entry.h"
 
 uint64_t show_dyld_regions(mach_port_t task, bool more)
 {
@@ -506,44 +507,10 @@ final:
 
 int hook_dyld_entry(mach_port_t task, uint64_t old_header, uint64_t old_entry, uint64_t new_entry)
 {
-    //Destroy the old dyld header first to avoid double dyld being found via vm_region*
+    uint32_t codes[ROOTHIDE_DYLD_ENTRY_WORDS];
+    roothide_encode_dyld_entry(new_entry, codes);
 
-    struct mach_header_64 padding = {0};
-
-    kern_return_t kr = vm_protect(task, (vm_address_t)old_header, sizeof(padding), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_protect header failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-    kr = vm_write(task, (vm_address_t)old_header, (vm_offset_t)&padding, sizeof(padding));
-    if(kr != KERN_SUCCESS) {
-        JBLogError("vm_write header failed: %d,%s", kr, mach_error_string(kr));
-        return -1;
-    }
-
-
-    uint32_t codes[] = {
-/*
-movz x0, 0x0000, lsl 48
-movk x0, 0x0000, lsl 32
-movk x0, 0x0000, lsl 16
-movk x0, 0x0000
-br   x0
-*/
-        0xD2E00000,
-        0xF2C00000,
-        0xF2A00000,
-        0xF2800000,
-        0xD61F0000,
-    };
-
-    codes[0] |= ((new_entry >> 48) & 0xffff) << 5;
-    codes[1] |= ((new_entry >> 32) & 0xffff) << 5;
-    codes[2] |= ((new_entry >> 16) & 0xffff) << 5;
-    codes[3] |= ((new_entry >>  0) & 0xffff) << 5;
-
-    kr = vm_protect(task, (vm_address_t)old_entry, sizeof(codes), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
+    kern_return_t kr = vm_protect(task, (vm_address_t)old_entry, sizeof(codes), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
     if(kr != KERN_SUCCESS) {
         JBLogError("vm_protect rw(cpoy) failed: %d,%s", kr, mach_error_string(kr));
         return -1;
@@ -555,9 +522,28 @@ br   x0
         return -1;
     }
 
-    kr = vm_protect(task, (vm_address_t)old_entry, sizeof(void*), false, VM_PROT_READ|VM_PROT_EXECUTE);
+    kr = vm_protect(task, (vm_address_t)old_entry, sizeof(codes), false, VM_PROT_READ|VM_PROT_EXECUTE);
     if(kr != KERN_SUCCESS) {
         JBLogError("vm_protect rx failed: %d,%s", kr, mach_error_string(kr));
+        return -1;
+    }
+
+    // Only hide the old image after its entry redirect is fully executable.
+    // The original mapping must remain: the kernel-signed PC still points here.
+    struct mach_header_64 padding = {0};
+    kr = vm_protect(task, (vm_address_t)old_header, sizeof(padding), false, VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY);
+    if(kr != KERN_SUCCESS) {
+        JBLogError("vm_protect header failed: %d,%s", kr, mach_error_string(kr));
+        return -1;
+    }
+    kr = vm_write(task, (vm_address_t)old_header, (vm_offset_t)&padding, sizeof(padding));
+    if(kr != KERN_SUCCESS) {
+        JBLogError("vm_write header failed: %d,%s", kr, mach_error_string(kr));
+        return -1;
+    }
+    kr = vm_protect(task, (vm_address_t)old_header, sizeof(padding), false, VM_PROT_READ|VM_PROT_EXECUTE);
+    if(kr != KERN_SUCCESS) {
+        JBLogError("vm_protect header rx failed: %d,%s", kr, mach_error_string(kr));
         return -1;
     }
 
@@ -638,6 +624,34 @@ br   x17
         return -1;
     }
 
+    return 0;
+}
+
+static int redirect_dyld_entry(mach_port_t task, mach_port_t thread, uint64_t bsdProc,
+    uint64_t oldHeader, uint64_t oldEntry, void *newEntry, uint64_t oldSize,
+    arm_thread_state64_t *state, mach_msg_type_number_t stateCount,
+    bool modernOS, bool differentPACKey)
+{
+    if (roothide_dyld_entry_uses_trampoline(modernOS, differentPACKey)) {
+        // A failed VM redirect must not fall back to the protected register API.
+        cs_allow_invalid(bsdProc, false);
+        return hook_dyld_entry(task, oldHeader, oldEntry, (uint64_t)newEntry);
+    }
+
+#ifdef __arm64e__
+    newEntry = ptrauth_sign_unauthenticated(newEntry, ptrauth_key_process_independent_code, 0);
+#endif
+    __darwin_arm_thread_state64_set_pc_fptr((*state), newEntry);
+    kern_return_t kr = thread_set_state(thread, ARM_THREAD_STATE64, (thread_state_t)state, stateCount);
+    if (kr != KERN_SUCCESS) {
+        JBLogError("thread_set_state failed: %d,%s", kr, mach_error_string(kr));
+        return -1;
+    }
+    kr = vm_deallocate(task, oldHeader, oldSize);
+    if (kr != KERN_SUCCESS) {
+        JBLogError("vm_deallocate old dyld failed: %d,%s", kr, mach_error_string(kr));
+        return -1;
+    }
     return 0;
 }
 
@@ -777,7 +791,7 @@ int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
         kr = thread_get_state(allThreads[i], ARM_THREAD_STATE64, (thread_state_t)&threadState, &threadStateCount);
         if(kr != KERN_SUCCESS) {
             JBLogError("thread_get_state %d,%s", kr, mach_error_string(kr));
-            goto failed;
+            goto reentry_end;
         }
 
         arm_thread_state64_t strippedState = threadState; /* some process such as WebContent used a different pac key
@@ -794,38 +808,23 @@ int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
         {
             JBLogDebug("dyld entrypoint found in thread[%d]:%x", i, allThreads[i]);
 
+            bool modernOS = false;
+            if (__builtin_available(iOS 17.0, *)) modernOS = true;
+            bool differentPACKey = false;
 #ifdef __arm64e__
-            void* savedPC = threadState.__opaque_pc;
-            void* resignedPC = ptrauth_sign_unauthenticated((void*)strippedPC, ptrauth_key_process_independent_code, 0);
-            __darwin_arm_thread_state64_set_pc_fptr(threadState, resignedPC);
-            if(threadState.__opaque_pc != savedPC) {
-                JBLogDebug("target process(%d) used a different pac key, %s", pid, proc_get_path(pid,NULL));
-
-                cs_allow_invalid(bsd_proc, false);
-
-                if(hook_dyld_entry(task, dyld_address, dyld_entry, (uint64_t)new_entry) != 0) {
-                    JBLogError("hook_dyld_entry failed");
-                    goto reentry_end;
-                }
-
-                reentry = true;
-                break;
+            if (!modernOS) {
+                void* savedPC = threadState.__opaque_pc;
+                void* resignedPC = ptrauth_sign_unauthenticated((void*)strippedPC, ptrauth_key_process_independent_code, 0);
+                __darwin_arm_thread_state64_set_pc_fptr(threadState, resignedPC);
+                differentPACKey = threadState.__opaque_pc != savedPC;
             }
 #endif
-
-#ifdef __arm64e__
-            new_entry = ptrauth_sign_unauthenticated(new_entry, ptrauth_key_process_independent_code, 0);
-#endif
-            __darwin_arm_thread_state64_set_pc_fptr(threadState, new_entry);
-            kr = thread_set_state(allThreads[i], ARM_THREAD_STATE64, (thread_state_t)&threadState, threadStateCount);
-            if(kr != KERN_SUCCESS) {
-                JBLogError("thread_set_state failed: %d,%s", kr, mach_error_string(kr));
-                goto reentry_end;
-            }
-
-            kr = vm_deallocate(task, dyld_address, stockDyldInfo->vmSpaceSize);
-            if(kr != KERN_SUCCESS) {
-                JBLogError("vm_deallocate old dyld failed: %d,%s", kr, mach_error_string(kr));
+            // Hardened iOS 17+ targets must never reach thread_set_state:
+            // launchd can be killed before its failure can be handled.
+            if (redirect_dyld_entry(task, allThreads[i], bsd_proc, dyld_address,
+                dyld_entry, new_entry, stockDyldInfo->vmSpaceSize, &threadState,
+                threadStateCount, modernOS, differentPACKey) != 0) {
+                JBLogError("dyld entry redirect failed for %d", pid);
                 goto reentry_end;
             }
 
