@@ -239,7 +239,12 @@ static int roothide_launchd_patch_child(pid_t pid, bool resume)
 	uint64_t expectedUniqueID = proc_get_uniqueid(pid);
 	if (expectedUniqueID == 0) return ESRCH;
 
-	int result = roothide_patch_proc(pid);
+	// Match jailbreakd's ppid == 1 && !resume policy. An explicitly
+	// suspended child belongs to its caller, which may still need to apply
+	// its own dyld patch (notably credential_helper_patch). Patching dyld
+	// here would make that second patch operate on an already redirected
+	// loader. Only children suspended by this hook get the full patch.
+	int result = resume ? roothide_patch_proc(pid) : proc_patch_csflags(pid);
 	if (result == 0 && proc_get_uniqueid(pid) != expectedUniqueID) {
 		result = ESRCH;
 	}

@@ -7,6 +7,7 @@
 
 #import "DOEnvironmentManager.h"
 #import "DOAppRegistration.h"
+#import "DOHelperDiagnostics.h"
 #import "UIImage+JPEG2000.h"
 
 #import <sys/sysctl.h>
@@ -414,6 +415,7 @@ static int DOHelperExitStatus(int status)
 - (int)spawnJbctlAsRootWithArgs:(NSArray<NSString *> *)args
 {
     [[NSThread currentThread].threadDictionary removeObjectForKey:@"DOHelperDiagnostic"];
+    [[NSThread currentThread].threadDictionary removeObjectForKey:@"DOHelperReportedError"];
     [self refreshJailbreakRootIfNeeded];
     NSString *root = DOValidRootPath();
     if (!root) return -ENOENT;
@@ -442,9 +444,15 @@ static int DOHelperExitStatus(int status)
         NSString *candidate = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"helper-%@.stderr", [NSUUID UUID].UUIDString]];
         // Create as the normal app user so diagnostics stay readable after
         // credential cleanup. Capture stderr without a pipe that could fill.
-        if ([[NSData data] writeToFile:candidate atomically:NO]) {
+        result = DOCreateHelperDiagnosticFile(candidate);
+        if (!result) {
             diagnosticPath = candidate;
             result = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, candidate.fileSystemRepresentation, O_WRONLY | O_TRUNC, 0600);
+        }
+        else {
+            NSString *message = [NSString stringWithFormat:@"Cannot create helper diagnostic output: %s", strerror(result)];
+            [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"] = message;
+            [[DOUIManager sharedInstance] sendLog:message debug:NO];
         }
     }
     int waitPipe[2] = {-1, -1};
@@ -513,12 +521,14 @@ static int DOHelperExitStatus(int status)
     }
     int status = [self waitForSpawnedHelper:pid timeout:120 processGroup:recoveryGroup];
     if (diagnosticPath) {
-        NSFileHandle *file = [NSFileHandle fileHandleForReadingAtPath:diagnosticPath];
-        NSData *data = [file readDataOfLength:8192];
-        [file closeFile];
-        NSString *diagnostic = [[NSString alloc] initWithData:data ?: [NSData data] encoding:NSUTF8StringEncoding];
-        if (!diagnostic && data.length) diagnostic = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
-        diagnostic = [diagnostic stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *diagnostic = nil;
+        BOOL reportedError = NO;
+        int diagnosticError = DOReadHelperDiagnosticFile(diagnosticPath, 8192, &diagnostic, &reportedError);
+        if (diagnosticError) {
+            diagnostic = [NSString stringWithFormat:@"Cannot read complete helper diagnostic output: %s (helper status %d).", strerror(diagnosticError), status];
+            status = -diagnosticError;
+        }
+        [NSThread currentThread].threadDictionary[@"DOHelperReportedError"] = @(reportedError);
         if (diagnostic.length) {
             [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"] = diagnostic;
             [[DOUIManager sharedInstance] sendLog:diagnostic debug:NO];
@@ -1022,7 +1032,8 @@ static int DOHelperExitStatus(int status)
         [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@"Registering %@ at %@", app[@"Name"], path] debug:NO];
         int status = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-p", virtualPath]];
         NSString *diagnostic = [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"];
-        if (DOUICacheRegistrationFailed(status, diagnostic)) return DORecoveryError(@"Register apps", status ?: -EIO, [NSString stringWithFormat:@"uicache failed for %@. %@", app[@"Name"], diagnostic ?: @""]);
+        BOOL reportedError = [[NSThread currentThread].threadDictionary[@"DOHelperReportedError"] boolValue];
+        if (reportedError || DOUICacheRegistrationFailed(status, diagnostic)) return DORecoveryError(@"Register apps", status ?: -EIO, [NSString stringWithFormat:@"uicache failed for %@. %@", app[@"Name"], diagnostic ?: @""]);
 
         // Root queries can see a different LS registration view. Verify after
         // all root scopes exit, and keep other threads from changing process

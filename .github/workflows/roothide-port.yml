@@ -69,6 +69,8 @@ jobs:
             2>&1 | tee .port-build/logs/runtime-safety.log
           python3 scripts/test_dyld_entry.py \
             2>&1 | tee .port-build/logs/dyld-entry.log
+          python3 scripts/test_launchd_child_patch.py \
+            2>&1 | tee .port-build/logs/launchd-child-patch.log
           xcrun --sdk macosx clang -fobjc-arc -framework Foundation \
             -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
             tests/dpkg_status.m -o .port-build/tests/dpkg-status-test \
@@ -139,6 +141,7 @@ jobs:
             FIXES_PORT13.md
             FIXES_PORT14.md
             FIXES_PORT15.md
+            FIXES_PORT16.md
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

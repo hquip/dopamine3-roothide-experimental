@@ -7,6 +7,7 @@
 
 #include <libjailbreak/libjailbreak.h>
 #include <libjailbreak/roothider.h>
+#include <libjailbreak/roothider/spawn_cleanup.h>
 
 extern char **environ;
 
@@ -100,17 +101,19 @@ int main(int argc, char* argv[])
 
 			if(unrestrict(pid, proc_patch_dyld, false) != 0) {
 				JBLogError("Failed to unrestrict process %d", pid);
-				kill(pid, SIGKILL);
-				waitpid(pid, NULL, 0);
+				roothide_kill_and_reap_child(pid);
 				return 5;
 			}
 
 			if(dyld_patch_enabled()) {
-				kill(pid, SIGCONT);
+				if (kill(pid, SIGCONT) != 0) {
+					JBLogError("Failed to resume replacement process %d: %d", pid, errno);
+					roothide_kill_and_reap_child(pid);
+					return 5;
+				}
 				return 0;
 			} else {
-				kill(pid, SIGKILL);
-				waitpid(pid, NULL, 0);
+				roothide_kill_and_reap_child(pid);
 			}
 		}
 
