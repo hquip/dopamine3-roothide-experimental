@@ -248,7 +248,7 @@ static int DOHelperExitStatus(int status)
 - (void)setJailbroken:(BOOL)jailbroken withVersion:(NSString *)version
 {
     _isJailbroken = jailbroken;
-    if (_isJailbroken) _jailbrokenVersion = version;
+    _jailbrokenVersion = _isJailbroken ? [version copy] : nil;
 }
 
 - (BOOL)isJailbrokenWithOtherJailbreak

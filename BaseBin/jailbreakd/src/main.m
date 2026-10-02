@@ -3,6 +3,7 @@
 #include <mach-o/dyld.h>
 #include <libproc.h>
 #include <spawn.h>
+#include <sys/wait.h>
 
 #include <libjailbreak/libjailbreak.h>
 #include <libjailbreak/roothider.h>
@@ -68,10 +69,14 @@ int main(int argc, char* argv[])
 			return 3;
 		}
 
-		if(getenv("RESPAWN_REQUIRED"))
+		// The replacement is only needed when the daemon itself must run with
+		// the patched dyld.  With dyld patching disabled, spawning a suspended
+		// copy and killing it again creates a window where launchd can observe a
+		// non-serving jailbreakd and block on its XPC port.
+		bool respawnRequired = getenv("RESPAWN_REQUIRED") != NULL;
+		if (respawnRequired) unsetenv("RESPAWN_REQUIRED");
+		if(respawnRequired && dyld_patch_enabled())
 		{
-			unsetenv("RESPAWN_REQUIRED");
-
 			char selfPath[PATH_MAX]={0};
 			uint32_t selfPathSize = sizeof(selfPath);
 			_NSGetExecutablePath(selfPath, &selfPathSize);
@@ -95,6 +100,8 @@ int main(int argc, char* argv[])
 
 			if(unrestrict(pid, proc_patch_dyld, false) != 0) {
 				JBLogError("Failed to unrestrict process %d", pid);
+				kill(pid, SIGKILL);
+				waitpid(pid, NULL, 0);
 				return 5;
 			}
 

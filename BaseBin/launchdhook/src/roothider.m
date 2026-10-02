@@ -3,6 +3,8 @@
 #include <spawn.h>
 #include <substrate.h>
 #include <sys/sysctl.h>
+#include <errno.h>
+#include <signal.h>
 
 #include <libjailbreak/libjailbreak.h>
 #include <libjailbreak/roothider.h>
@@ -221,6 +223,32 @@ int roothide_launchd_trust_executable(const char* path)
 	return dyld_patch_enabled() ? systemwide_trust_file_by_path(path) : roothide_trust_executable_recurse(path, "/", NULL);
 }
 
+/*
+ * launchd must not synchronously ask jailbreakd to patch a child.  During
+ * early activation jailbreakd can still be suspended while launchd is the
+ * only process able to finish its startup; sending an XPC request from this
+ * posthook then exhausts launchd's worker threads and trips watchdogd.
+ *
+ * The child is already held suspended by this hook.  Use the same patch
+ * operation that jailbreakd would use, while retaining the parent and
+ * process-identity checks, then resume it only after the operation succeeds.
+ */
+static int roothide_launchd_patch_child(pid_t pid, bool resume)
+{
+	if (pid <= 0 || proc_get_ppid(pid) != 1) return EPERM;
+	uint64_t expectedUniqueID = proc_get_uniqueid(pid);
+	if (expectedUniqueID == 0) return ESRCH;
+
+	int result = roothide_patch_proc(pid);
+	if (result == 0 && proc_get_uniqueid(pid) != expectedUniqueID) {
+		result = ESRCH;
+	}
+	if (result == 0 && resume && kill(pid, SIGCONT) != 0) {
+		result = errno;
+	}
+	return result;
+}
+
 int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict])
 {
 	//spawn_prehook ensure this is always available
@@ -232,7 +260,10 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 	int proctype = 0;
 	posix_spawnattr_getprocesstype_np(attrp, &proctype);
 
-	bool should_suspend = (proctype != POSIX_SPAWN_PROC_TYPE_DRIVER);
+	bool isJailbreakd = string_has_suffix(path, "/basebin/jailbreakd");
+	// jailbreakd is its own server and must be allowed to start without being
+	// routed through the server it is supposed to provide.
+	bool should_suspend = !isJailbreakd && (proctype != POSIX_SPAWN_PROC_TYPE_DRIVER);
 	bool should_resume = should_suspend && (flags & POSIX_SPAWN_START_SUSPENDED)==0;
 
 	if (should_suspend) {
@@ -266,7 +297,14 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 
 	if (ret == 0 && pid > 0) {
 		if(should_suspend) {
-			if(jbdSpawnPatchChild(pid, should_resume) != 0) {
+			bool directLaunchdPatch = false;
+			if (getpid() == 1) {
+				if (@available(iOS 17.0, *)) directLaunchdPatch = true;
+			}
+			int patchResult = directLaunchdPatch
+				? roothide_launchd_patch_child(pid, should_resume)
+				: jbdSpawnPatchChild(pid, should_resume);
+			if(patchResult != 0) {
 				JBLogError("Failed to patch spawned process (%d) %s", pid, path);
 				//just kill it instead of letting it hang forever so that launchd can respawn it later
 				kill(pid, SIGQUIT); //core dump

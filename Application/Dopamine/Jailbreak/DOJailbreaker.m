@@ -566,6 +566,7 @@ void *boomerang_server(struct boomerang_info *info)
 {
 
 /****************** roothide specific ****************/
+    [[DOEnvironmentManager sharedManager] setJailbroken:NO withVersion:nil];
     exec_set_patch(false);
 /****************** roothide specific ****************/
 
@@ -678,9 +679,6 @@ void *boomerang_server(struct boomerang_info *info)
         return;
     }
 
-    // After the launchd hook is initialized, we need to make the app believe the device is jailbroken
-    [[DOEnvironmentManager sharedManager] setJailbroken:YES withVersion:[NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil]];
-
     // RootHide generates a per-process loader instead of the rootless bind mount.
     [[DOUIManager sharedInstance] sendLog:DOLocalizedString(@"RootHide Stage") debug:NO];
     int ret = basebin_generate(false);
@@ -711,6 +709,12 @@ void *boomerang_server(struct boomerang_info *info)
     // RootHide's randomized containers. Keep the iOS 17+ credential cleanup.
     *errOut = [self cleanUpPostExploitation];
     if (*errOut) return;
+
+    // Publish the active state only after the runtime, bootstrap and cleanup
+    // stages all completed.  Earlier failures must remain visibly unjailbroken
+    // so the action menu cannot offer userspace operations against a partial
+    // environment.
+    [[DOEnvironmentManager sharedManager] setJailbroken:YES withVersion:[NSString stringWithContentsOfFile:JBROOT_PATH(@"/basebin/.version") encoding:NSUTF8StringEncoding error:nil]];
 
     //printf("Starting launch daemons...\n");
     //exec_cmd_trusted(JBROOT_PATH("/usr/bin/uicache"), "-a", NULL);
