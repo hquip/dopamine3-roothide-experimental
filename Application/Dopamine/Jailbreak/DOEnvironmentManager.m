@@ -1016,6 +1016,7 @@ static int DOHelperExitStatus(int status)
     NSString *root = DOValidRootPath();
     if (!root) return DORecoveryError(@"Register apps", -ENOENT, @"The jailbreak root is unavailable.");
     NSString *uicache = [root stringByAppendingPathComponent:@"usr/bin/uicache"];
+    BOOL attemptedFullRegistration = NO;
     for (NSDictionary *app in apps) {
         NSString *virtualPath = DOVirtualBundledAppPath(app[@"App"]);
         if (!virtualPath) return DORecoveryError(@"Register apps", -EINVAL, @"The bundled app name is invalid.");
@@ -1033,7 +1034,19 @@ static int DOHelperExitStatus(int status)
         int status = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-p", virtualPath]];
         NSString *diagnostic = [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"];
         BOOL reportedError = [[NSThread currentThread].threadDictionary[@"DOHelperReportedError"] boolValue];
-        if (reportedError || DOUICacheRegistrationFailed(status, diagnostic)) return DORecoveryError(@"Register apps", status ?: -EIO, [NSString stringWithFormat:@"uicache failed for %@. %@", app[@"Name"], diagnostic ?: @""]);
+        if (reportedError || DOUICacheRegistrationFailed(status, diagnostic)) {
+            // RootHide's uicache may reject a virtual -p path even though its
+            // full scan can register the same jbroot application.  Use the
+            // upstream recovery path once, then verify each app below.
+            if (!attemptedFullRegistration) {
+                attemptedFullRegistration = YES;
+                int fullStatus = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-a"]];
+                if (fullStatus != 0) {
+                    NSString *fullDiagnostic = [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"];
+                    return DORecoveryError(@"Register apps", fullStatus, [NSString stringWithFormat:@"uicache full scan failed while registering %@. %@", app[@"Name"], fullDiagnostic ?: diagnostic ?: @""]);
+                }
+            }
+        }
 
         // Root queries can see a different LS registration view. Verify after
         // all root scopes exit, and keep other threads from changing process
