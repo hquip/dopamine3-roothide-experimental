@@ -1093,6 +1093,17 @@ static int DOHelperExitStatus(int status)
     return error;
 }
 
+- (NSError *)repairPackageSources
+{
+    __block NSError *sourceError = nil;
+    NSError *privilegeError = [self runAsRootChecked:^{
+        sourceError = [self runUnsandboxedChecked:^{
+            sourceError = [self->_bootstrapper repairPackageSources];
+        }];
+    }];
+    return privilegeError ?: sourceError;
+}
+
 - (NSError *)reinstallPackageManagers
 {
     NSMutableArray *apps = [NSMutableArray array];
@@ -1101,19 +1112,15 @@ static int DOHelperExitStatus(int status)
         if ([app[@"Identifier"] isEqualToString:@"com.roothide.manager"] || [selected containsObject:app[@"BundleIdentifier"]]) [apps addObject:app];
     }
 
-    __block NSError *sourceError = nil;
-    NSError *privilegeError = [self runAsRootChecked:^{
-        sourceError = [self runUnsandboxedChecked:^{
-            sourceError = [self->_bootstrapper repairPackageSources];
-        }];
-    }];
-    if (privilegeError) return privilegeError;
+    NSError *sourceError = [self repairPackageSources];
     if (sourceError) return sourceError;
     return [self recoverBundledApps:apps];
 }
 
 - (NSError *)reinstallAllBundledApps
 {
+    NSError *sourceError = [self repairPackageSources];
+    if (sourceError) return sourceError;
     return [self recoverBundledApps:DOBundledJailbreakApps()];
 }
 
