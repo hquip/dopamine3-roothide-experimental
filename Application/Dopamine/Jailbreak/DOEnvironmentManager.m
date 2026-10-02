@@ -1079,21 +1079,27 @@ static int DOHelperExitStatus(int status)
 
             // The full scan may repair a silent -p failure. Re-read
             // LaunchServices as mobile before returning the original error.
-            verificationError = nil;
-            [privilegeLock lock];
-            @try {
-                if (DOPrivilegeCleanupFailed || geteuid() != 501) {
-                    verificationError = DORecoveryError(@"Verify registration", -EPERM, @"LaunchServices verification requires restored mobile credentials; close and reopen Dopamine.");
-                }
-                else {
-                    LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
-                    NSString *registeredPath = proxy.bundleURL.path;
-                    if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
-                        verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+            // RootHide's lsd hook starts the full scan asynchronously, so
+            // allow its database a bounded window to publish the registration.
+            for (NSUInteger retry = 0; retry < 10; retry++) {
+                verificationError = nil;
+                [privilegeLock lock];
+                @try {
+                    if (DOPrivilegeCleanupFailed || geteuid() != 501) {
+                        verificationError = DORecoveryError(@"Verify registration", -EPERM, @"LaunchServices verification requires restored mobile credentials; close and reopen Dopamine.");
+                    }
+                    else {
+                        LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
+                        NSString *registeredPath = proxy.bundleURL.path;
+                        if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
+                            verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+                        }
                     }
                 }
+                @finally { [privilegeLock unlock]; }
+                if (!verificationError || verificationError.code != -ENOENT || retry == 9) break;
+                usleep(200000);
             }
-            @finally { [privilegeLock unlock]; }
         }
         if (verificationError) return verificationError;
     }
