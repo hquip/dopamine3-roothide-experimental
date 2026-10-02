@@ -1069,6 +1069,32 @@ static int DOHelperExitStatus(int status)
             }
         }
         @finally { [privilegeLock unlock]; }
+        if (verificationError && !attemptedFullRegistration) {
+            attemptedFullRegistration = YES;
+            int fullStatus = [self spawnJbctlAsRootWithArgs:@[@"internal", @"run_tool", uicache, @"-a"]];
+            if (fullStatus != 0) {
+                NSString *fullDiagnostic = [NSThread currentThread].threadDictionary[@"DOHelperDiagnostic"];
+                return DORecoveryError(@"Register apps", fullStatus, [NSString stringWithFormat:@"uicache full scan failed while verifying %@. %@", app[@"Name"], fullDiagnostic ?: @""]);
+            }
+
+            // The full scan may repair a silent -p failure. Re-read
+            // LaunchServices as mobile before returning the original error.
+            verificationError = nil;
+            [privilegeLock lock];
+            @try {
+                if (DOPrivilegeCleanupFailed || geteuid() != 501) {
+                    verificationError = DORecoveryError(@"Verify registration", -EPERM, @"LaunchServices verification requires restored mobile credentials; close and reopen Dopamine.");
+                }
+                else {
+                    LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
+                    NSString *registeredPath = proxy.bundleURL.path;
+                    if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
+                        verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+                    }
+                }
+            }
+            @finally { [privilegeLock unlock]; }
+        }
         if (verificationError) return verificationError;
     }
     // Do not rebuild all LaunchServices databases here. It can remove valid
