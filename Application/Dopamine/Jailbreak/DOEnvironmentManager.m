@@ -1100,6 +1100,15 @@ static int DOHelperExitStatus(int status)
     for (NSDictionary *app in DOBundledJailbreakApps()) {
         if ([app[@"Identifier"] isEqualToString:@"com.roothide.manager"] || [selected containsObject:app[@"BundleIdentifier"]]) [apps addObject:app];
     }
+
+    __block NSError *sourceError = nil;
+    NSError *privilegeError = [self runAsRootChecked:^{
+        sourceError = [self runUnsandboxedChecked:^{
+            sourceError = [self->_bootstrapper repairPackageSources];
+        }];
+    }];
+    if (privilegeError) return privilegeError;
+    if (sourceError) return sourceError;
     return [self recoverBundledApps:apps];
 }
 

@@ -202,22 +202,12 @@ Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: http://apt.thebigboss.org/repofiles/cydia/\n\
-Suites: stable\n\
-Components: main\n\
-\n\
-Types: deb\n\
 URIs: https://roothide.github.io/\n\
 Suites: ./\n\
 Components:\n\
 \n\
 Types: deb\n\
-URIs: https://roothide.github.io/procursus\n\
-Suites: iphoneos-arm64e/%d\n\
-Components: main\n\
-\n\
-Types: deb\n\
-URIs: https://github.com/roothide/roothide.github.io/releases/download/%d/\n\
+URIs: https://github.com/roothide/roothide.github.io/releases/download/%d\n\
 Suites: ./\n\
 Components:\n\
 "
@@ -241,8 +231,7 @@ deb https://repo.chariz.com/ ./\n\
 deb https://yourepo.com/ ./\n\
 deb https://havoc.app/ ./\n\
 deb https://roothide.github.io/ ./\n\
-deb https://roothide.github.io/procursus iphoneos-arm64e/%d main\n\
-deb https://github.com/roothide/roothide.github.io/releases/download/%d/ ./\n\
+deb https://github.com/roothide/roothide.github.io/releases/download/%d ./\n\
 \n\
 "
 
@@ -522,7 +511,7 @@ int getCFMajorVersion(void)
 
 
 #define STRAPLOG(...)   [[DOUIManager sharedInstance] sendLog:[NSString stringWithFormat:@__VA_ARGS__] debug:YES];
-#define ASSERT(...)     do{if(!(__VA_ARGS__)) {completion([NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"ABORT: %s (%d): %s", __FILE_NAME__, __LINE__, #__VA_ARGS__]}]);return -1;}} while(0)
+#define ASSERT(...)     do{if(!(__VA_ARGS__)) { NSError *assertError = [NSError errorWithDomain:bootstrapErrorDomain code:BootstrapErrorCodeFailedExtracting userInfo:@{NSLocalizedDescriptionKey : [NSString stringWithFormat:@"ABORT: %s (%d): %s", __FILE_NAME__, __LINE__, #__VA_ARGS__]}]; if (completion) completion(assertError); return -1; }} while(0)
 
 - (NSString *)bootstrapVersion
 {
@@ -549,6 +538,17 @@ int getCFMajorVersion(void)
     ASSERT([[NSString stringWithFormat:@(ZEBRA_SOURCES), getCFMajorVersion(), getCFMajorVersion()] writeToFile:jbrootPrefix(@"/var/mobile/Library/Application Support/xyz.willy.Zebra/sources.list") atomically:YES encoding:NSUTF8StringEncoding error:nil]);
 
     return 0;
+}
+
+- (NSError *)repairPackageSources
+{
+    int result = [self buildPackageSources:nil];
+    if (result != 0) {
+        return [NSError errorWithDomain:bootstrapErrorDomain
+                                    code:result
+                                userInfo:@{NSLocalizedDescriptionKey: @"Could not repair package source configuration."}];
+    }
+    return nil;
 }
 
 -(int) InstallBootstrap:(NSString*)installPath WithCompletion:(void (^)(NSError *))completion
