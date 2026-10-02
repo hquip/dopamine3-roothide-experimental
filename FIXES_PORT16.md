@@ -20,7 +20,7 @@ port.13 已修复 uicache 虚拟路径重复拼接，并识别工具“退出 0 
 
 ## 软件源迁移
 
-默认 Sileo/Zebra 源移除了会产生坏索引的 BigBoss 与 `roothide.github.io/procursus` 重定向条目，改用 RootHide 官方 GitHub Release `1900` 的平面 APT 直链，并去掉末尾斜杠。重新安装包管理器前会以 RootHide 权限重写源配置，因此已有设备可以通过一次恢复操作迁移旧配置。
+默认 Sileo/Zebra 源移除了会产生坏索引的 BigBoss 与 GitHub Release 重定向条目，保留可直接提供 arm64e `Release`/`Packages` 的 `https://roothide.github.io/procursus` 静态 APT 源。重新安装包管理器前会以 RootHide 权限重写源配置，因此已有设备可以通过一次恢复操作迁移旧配置。
 
 ## 验证边界
 
