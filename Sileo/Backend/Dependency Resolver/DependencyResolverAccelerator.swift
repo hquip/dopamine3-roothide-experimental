@@ -9,6 +9,69 @@
 import Foundation
 import Evander
 
+// BEGIN INSTALLATION OPERATIONS CACHE HELPER
+// This is also compiled by the Foundation-only filesystem regression test.
+enum InstallationOperationsCache {
+    static func prepare(in parent: URL, within cacheRoot: URL,
+                        expectedOwnerID: UInt32? = nil,
+                        fileManager: FileManager = .default) throws -> URL {
+        let parent = parent.standardizedFileURL
+        let operations = parent.appendingPathComponent("operations", isDirectory: true).standardizedFileURL
+
+        func reject(_ path: URL, _ reason: String) -> NSError {
+            NSError(domain: NSCocoaErrorDomain, code: CocoaError.Code.fileWriteNoPermission.rawValue,
+                    userInfo: [NSFilePathErrorKey: path.path, NSLocalizedDescriptionKey: reason])
+        }
+
+        guard parent.isFileURL, cacheRoot.isFileURL,
+              operations.deletingLastPathComponent().path == parent.path else {
+            throw reject(operations, "Installation metadata must be a direct cache child.")
+        }
+        let canonicalParent = parent.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let canonicalRoot = cacheRoot.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard canonicalParent.starts(with: canonicalRoot) else {
+            throw reject(parent, "Installation metadata is outside the package cache root.")
+        }
+
+        // Require the existing, writable parent; never recreate or change ownership
+        // of the dependency indexes here. attributesOfItem inspects the link itself.
+        let parentAttributes = try fileManager.attributesOfItem(atPath: parent.path)
+        guard parentAttributes[.type] as? FileAttributeType == .typeDirectory else {
+            throw reject(parent, "Installation metadata parent must be a directory, not a symbolic link.")
+        }
+        if let expectedOwnerID = expectedOwnerID,
+           (parentAttributes[.ownerAccountID] as? NSNumber)?.uint32Value != expectedOwnerID {
+            throw reject(parent, "Installation metadata parent is not owned by the current app user.")
+        }
+        guard fileManager.isWritableFile(atPath: parent.path) else {
+            throw reject(parent, "Installation metadata parent is not writable by the current app user.")
+        }
+
+        let existingAttributes: [FileAttributeKey: Any]?
+        do {
+            existingAttributes = try fileManager.attributesOfItem(atPath: operations.path)
+        } catch {
+            let fileError = error as NSError
+            guard fileError.domain == NSCocoaErrorDomain,
+                  fileError.code == CocoaError.Code.fileReadNoSuchFile.rawValue else { throw error }
+            existingAttributes = nil
+        }
+        if let attributes = existingAttributes {
+            let type = attributes[.type] as? FileAttributeType
+            guard type == .typeDirectory || type == .typeRegular else {
+                throw reject(operations, "Installation metadata cannot replace a symbolic link or special file.")
+            }
+            // FileManager removes contained symbolic links, not their destinations.
+            // Only this precise operations child is removed; sibling indexes survive.
+            try fileManager.removeItem(at: operations)
+        }
+        try fileManager.createDirectory(at: operations, withIntermediateDirectories: false,
+                                        attributes: [.posixPermissions: 0o755])
+        return operations
+    }
+}
+// END INSTALLATION OPERATIONS CACHE HELPER
+
 class DependencyResolverAccelerator {
     public static let shared = DependencyResolverAccelerator()
     
@@ -88,18 +151,23 @@ class DependencyResolverAccelerator {
     }
     
     public func buildOperations(packages: [Package]) throws {
-        let cachedirpath = jbroot("\(CommandPath.sileolists)/operations")
-        let resolverPrefix = URL(fileURLWithPath: cachedirpath)
-        
-        spawnAsRoot(args: [CommandPath.rm, "-rf", rootfs(cachedirpath)])
-        
-        let attributes: [FileAttributeKey: Any] = [
-            .posixPermissions: 0o755,
-            .ownerAccountID: 501,
-            .groupOwnerAccountID: 501
-        ]
-        
-        try FileManager.default.createDirectory(atPath: cachedirpath, withIntermediateDirectories: false, attributes: attributes)
+        preflightLock.lock()
+        defer { preflightLock.unlock() }
+
+        #if targetEnvironment(simulator) || TARGET_SANDBOX
+        let cacheRoot = FileManager.default.documentDirectory
+        let expectedOwnerID: UInt32? = nil
+        #elseif targetEnvironment(macCatalyst)
+        let cacheRoot = URL(fileURLWithPath: CommandPath.prefix)
+        let expectedOwnerID: UInt32? = nil
+        #else
+        let cacheRoot = URL(fileURLWithPath: CommandPath.prefix.isEmpty ? "/" : CommandPath.prefix)
+        let expectedOwnerID: UInt32? = 501
+        #endif
+        // depResolverPrefix is already physical on RootHide, exactly as it is in
+        // getDependencies. Mapping it through jbroot again duplicates the prefix.
+        let resolverPrefix = try InstallationOperationsCache.prepare(
+            in: depResolverPrefix, within: cacheRoot, expectedOwnerID: expectedOwnerID)
         
         for package in packages {
             //NSLog("SileoLog: sourcesFile=\(sourcesFile) packages=\(packages.map({ $0.package }))")
