@@ -87,7 +87,7 @@ class DependencyResolverAccelerator {
         #endif
     }
     
-    public func buildOperations(packages: [Package]) {
+    public func buildOperations(packages: [Package]) throws {
         let cachedirpath = jbroot("\(CommandPath.sileolists)/operations")
         let resolverPrefix = URL(fileURLWithPath: cachedirpath)
         
@@ -99,7 +99,7 @@ class DependencyResolverAccelerator {
             .groupOwnerAccountID: 501
         ]
         
-        try! FileManager.default.createDirectory(atPath: cachedirpath, withIntermediateDirectories: false, attributes: attributes)
+        try FileManager.default.createDirectory(atPath: cachedirpath, withIntermediateDirectories: false, attributes: attributes)
         
         for package in packages {
             //NSLog("SileoLog: sourcesFile=\(sourcesFile) packages=\(packages.map({ $0.package }))")
@@ -118,7 +118,7 @@ class DependencyResolverAccelerator {
                 }
             }
             sourcesData.append(Data(bytes))
-            try! sourcesData.append(to: newSourcesFile)
+            try sourcesData.append(to: newSourcesFile)
         }
     }
     

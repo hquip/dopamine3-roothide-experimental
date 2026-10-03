@@ -185,7 +185,15 @@ class APTWrapper {
         return completionCallback(0, .back, true)
         #else
         
-        DependencyResolverAccelerator.shared.buildOperations(packages: (installs+installDeps).map({$0.package}))
+        do {
+            try DependencyResolverAccelerator.shared.buildOperations(packages: (installs+installDeps).map({$0.package}))
+        } catch {
+            let fileError = error as NSError
+            outputCallback("Unable to prepare installation metadata at \(CommandPath.sileolists)/operations: \(fileError.domain) (\(fileError.code)): \(fileError.localizedDescription)\n", Int(STDERR_FILENO))
+            // Completion uses waitpid status, so encode a nonzero exit status.
+            completionCallback(1 << 8, .back, false)
+            return
+        }
         
         var arguments = [CommandPath.aptget,
                          "install", "--reinstall",
@@ -335,6 +343,12 @@ class APTWrapper {
             NSLog("SileoLog: spawn2=\(arguments)")
             
             if spawnStatus != 0 {
+                for descriptor in pipestdout + pipestderr + pipestatusfd + pipesileo {
+                    close(descriptor)
+                }
+                let errorDescription = String(cString: strerror(spawnStatus))
+                outputCallback("Unable to start installation command \(command): errno \(spawnStatus) (\(errorDescription))\n", Int(STDERR_FILENO))
+                completionCallback(1 << 8, .back, false)
                 return
             }
 
@@ -447,7 +461,7 @@ class APTWrapper {
                         return
                     }
 
-                    statusFdSource.cancel()
+                    sileoFdSource.cancel()
                     return
                 }
 

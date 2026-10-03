@@ -415,6 +415,35 @@ final class DownloadManager {
         let destURL = URL(fileURLWithPath: destFileName)
 
         moveFileAsRoot(from: fileURL, to: destURL)
+
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: destFileName)
+        } catch {
+            let fileError = error as NSError
+            throw NSError(domain: "Sileo.PackageCache", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Unable to read the saved package in the APT archive cache at \(destFileName): \(fileError.domain) (\(fileError.code)): \(fileError.localizedDescription)",
+                NSFilePathErrorKey: destFileName,
+                NSUnderlyingErrorKey: fileError
+            ])
+        }
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let expectedSize = package.size.flatMap({ UInt64($0) }),
+              let savedSize = attributes[.size] as? NSNumber,
+              savedSize.uint64Value == expectedSize else {
+            throw NSError(domain: "Sileo.PackageCache", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Unable to save downloaded package to the APT archive cache at \(destFileName): file type or size does not match.",
+                NSFilePathErrorKey: destFileName
+            ])
+        }
+        // A failed move can leave a stale file with the same name. Verify the
+        // saved archive against the same hashes used for the download.
+        guard supportedHashTypes.allSatisfy({ destURL.hash(ofType: $0.0.hashType) == $0.1 }) else {
+            throw NSError(domain: "Sileo.PackageCache", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Unable to verify the saved package in the APT archive cache at \(destFileName): archive is unreadable or its hash does not match.",
+                NSFilePathErrorKey: destFileName
+            ])
+        }
         #endif
         self.vars.cachedDownloadFiles.append(fileURL)
         return true

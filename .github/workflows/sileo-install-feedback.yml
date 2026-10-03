@@ -1,0 +1,75 @@
+name: Build Sileo installation feedback fix
+
+on:
+  push:
+    branches:
+      - fix/install-error-feedback
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sileo-install-feedback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the independent Sileo source branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Record the native build environment
+        run: |
+          set -euo pipefail
+          mkdir -p .sileo-build/logs
+          git rev-parse HEAD > .sileo-build/logs/source-commit.txt
+          sw_vers > .sileo-build/logs/macos-version.txt
+          uname -m > .sileo-build/logs/host-architecture.txt
+          xcodebuild -version > .sileo-build/logs/xcode-version.txt
+          xcrun --sdk iphoneos --show-sdk-path > .sileo-build/logs/ios-sdk.txt
+          if [[ "$(uname -m)" == arm64 ]]; then
+            if ! /usr/bin/arch -x86_64 /usr/bin/true; then
+              sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+            fi
+            /usr/bin/arch -x86_64 /usr/bin/true
+          fi
+
+      - name: Install the existing packaging toolchain
+        uses: dhinakg/procursus-action@4526d5e64410da26bea8073926c0bf8e779293f1
+        with:
+          packages: ldid dpkg make xz-utils zstd
+          cache: 'false'
+
+      - name: Build and verify the RootHide Sileo package
+        run: bash ci/build_sileo_install_feedback.sh 2>&1 | tee .sileo-build/logs/build.log
+
+      - name: Upload the package and build evidence
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sileo-install-feedback-${{ github.run_number }}
+          path: |
+            packages/*.deb
+            .sileo-build/logs/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
+      - name: Upload failed build evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sileo-install-feedback-logs-${{ github.run_number }}
+          path: .sileo-build/logs/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
