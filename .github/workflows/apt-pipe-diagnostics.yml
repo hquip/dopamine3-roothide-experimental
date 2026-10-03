@@ -1,0 +1,35 @@
+name: Test ordinary installation pipe actions
+
+on:
+  push:
+    branches:
+      - test/apt-pipe-actions
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test actual POSIX pipe descriptors with an ordinary self-spawn process
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .pipe-diagnostics
+          python3 ci/test_apt_pipe_actions.py > .pipe-diagnostics/result.json
+      - name: Preserve results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: apt-pipe-diagnostics
+          path: .pipe-diagnostics/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
