@@ -104,7 +104,7 @@ with (app / 'Info.plist').open('rb') as handle:
     info = plistlib.load(handle)
 assert info['CFBundleShortVersionString'] == version, 'Bundle/control version mismatch'
 assert info['CFBundleIdentifier'] == 'org.coolstar.SileoStore', 'Unexpected bundle ID'
-subprocess.run(['xcrun', 'lipo', '-verify_arch', 'arm64', str(app / info['CFBundleExecutable'])], check=True)
+subprocess.run(['xcrun', 'lipo', str(app / info['CFBundleExecutable']), '-verify_arch', 'arm64'], check=True)
 subprocess.run(['dpkg-deb', '--info', str(package)], check=True,
     stdout=(root / '.sileo-build/logs/deb-control.txt').open('w'))
 subprocess.run(['shasum', '-a', '256', str(package)], check=True,
