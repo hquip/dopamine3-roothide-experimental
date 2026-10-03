@@ -26,6 +26,20 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Check RPC schema bounds with AddressSanitizer
+        run: |
+          set -euo pipefail
+          unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+          mkdir -p .port-build/logs .port-build/tests/schema
+          # Keep the real port.19 baseline for negative overflow reproduction.
+          git fetch --no-tags --depth=1 origin 3bf9dba816913bcf21687bc44aa7dedb2ab25fdf
+          python3 scripts/test_jbserver_schema.py \
+            --clang "$(xcrun --find clang)" \
+            --sysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            --baseline-ref 3bf9dba816913bcf21687bc44aa7dedb2ab25fdf \
+            --output-dir .port-build/tests/schema \
+            2>&1 | tee .port-build/logs/rpc-schema-asan.log
+
       - name: Check source files and prepare the XPF port
         run: |
           mkdir -p .port-build/logs
@@ -145,6 +159,8 @@ jobs:
             FIXES_PORT17.md
             FIXES_PORT18.md
             FIXES_PORT19.md
+            FIXES_PORT20.md
+            .port-build/tests/schema/baseline-*.txt
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14

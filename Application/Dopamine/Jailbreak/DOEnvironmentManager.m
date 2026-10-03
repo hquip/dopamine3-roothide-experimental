@@ -1064,7 +1064,7 @@ static int DOHelperExitStatus(int status)
                 LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
                 NSString *registeredPath = proxy.bundleURL.path;
                 if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
-                    verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+                    verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"Dopamine could not verify %@ at %@ (reported path: %@). An empty LaunchServices query does not prove the app is missing. If its icon exists and it opens normally, do not repeat Restore.", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
                 }
             }
         }
@@ -1092,7 +1092,7 @@ static int DOHelperExitStatus(int status)
                         LSApplicationProxy *proxy = [LSApplicationProxy applicationProxyForIdentifier:app[@"BundleIdentifier"]];
                         NSString *registeredPath = proxy.bundleURL.path;
                         if (!proxy.installed || !DORegistrationPathMatches(registeredPath, expectedPath)) {
-                            verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"%@ was not registered for mobile at %@ (reported path: %@).", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
+                            verificationError = DORecoveryError(@"Verify registration", -ENOENT, [NSString stringWithFormat:@"Dopamine could not verify %@ at %@ (reported path: %@). An empty LaunchServices query does not prove the app is missing. If its icon exists and it opens normally, do not repeat Restore.", app[@"Name"], expectedPath, registeredPath ?: @"none"]);
                         }
                     }
                 }
@@ -1141,12 +1141,13 @@ static int DOHelperExitStatus(int status)
 - (NSError *)repairPackageSources
 {
     __block NSError *sourceError = nil;
+    __block NSError *sandboxError = nil;
     NSError *privilegeError = [self runAsRootChecked:^{
-        sourceError = [self runUnsandboxedChecked:^{
+        sandboxError = [self runUnsandboxedChecked:^{
             sourceError = [self->_bootstrapper repairPackageSources];
         }];
     }];
-    return privilegeError ?: sourceError;
+    return privilegeError ?: sandboxError ?: sourceError;
 }
 
 - (NSError *)reinstallPackageManagers

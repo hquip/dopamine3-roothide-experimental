@@ -47,7 +47,7 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 	void *args[8] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 	void *argsOut[8] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
 
-	for (uint64_t i = 0; action->args[i].name && i < 8; i++) {
+	for (uint64_t i = 0; i < 8 && action->args[i].name; i++) {
 		jbserver_arg *argDesc = &action->args[i];
 		if (!argDesc->out) {
 			switch (argDesc->type) {
@@ -96,7 +96,7 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 
 	int result = handler(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
 
-	for (uint64_t i = 0; action->args[i].name && i < 8; i++) {
+	for (uint64_t i = 0; i < 8 && action->args[i].name; i++) {
 		jbserver_arg *argDesc = &action->args[i];
 		if (argDesc->out) {
 			switch (argDesc->type) {

@@ -52,15 +52,16 @@ def main():
     if runtime_version is not None and runtime_version != version:
         errors.append('The app-required runtime version must match the bundled basebin.')
 
-    # These are the reviewed tag27 RootHide resources, not the ordinary
+    # These are reviewed RootHide resources, not the ordinary
     # Procursus iOS bootstrap downloaded by the original Dopamine workflow.
     resources = root / 'Application/Dopamine/Resources'
     resource_hashes = {
         'bootstrap_1800.tar.zst': '3350ed91d77163e0cd73f0f90185b5c9b87d9d294133e25ced3a29329e90370e',
         'bootstrap_1900.tar.zst': '420f72d1a62c9f884733cdefc596728469482a48858ec7ceca4d3ab2d3cba56c',
         'roothideapp.deb': 'b8f075e1844709845962900b22fe71136a66369a2c35bb1201087f2fd9476b7d',
-        # RootHide tag27 package-manager resources for iphoneos-arm64e.
-        'sileo.deb': 'e85ab12f8d98da9a5350293647266b898282b0d766df2397526ab253d84eede3',
+        # Reviewed Sileo 2.5.1-13+install-feedback.5, CI artifact verified.
+        'sileo.deb': '643be92b4ee20c7b6b5685b99cb1cc252d08e1e6fe0fe33272a3ad5e6176c097',
+        # RootHide tag27 Zebra resource for iphoneos-arm64e.
         'zebra.deb': 'ca82c18256e19ff78af3e53308d53f047a2d429cb7e025c892377abe4d2e7825',
     }
     for name, expected in resource_hashes.items():

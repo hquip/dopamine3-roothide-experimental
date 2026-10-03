@@ -684,6 +684,7 @@ struct jbserver_domain gSystemwideDomain = {
 			.args = (jbserver_arg[]) {
 				{ .name = "key", .type = JBS_TYPE_STRING, .out = false },
 				{ .name = "value", .type = JBS_TYPE_XPC_GENERIC, .out = true },
+				{ 0 },
 			},
 		},
 		// JBS_SYSTEMWIDE_PERSONA_FIX
@@ -694,6 +695,7 @@ struct jbserver_domain gSystemwideDomain = {
 				{ .name = "child-pid", .type = JBS_TYPE_UINT64, .out = false },
 				{ .name = "overwrite-uid", .type = JBS_TYPE_UINT64, .out = false },
 				{ .name = "overwrite-gid", .type = JBS_TYPE_UINT64, .out = false },
+				{ 0 },
 			},
 		},
 		{ 0 },
