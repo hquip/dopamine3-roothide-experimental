@@ -31,7 +31,7 @@ from pathlib import Path
 root = Path.cwd()
 project = root / 'Sileo.xcodeproj/project.pbxproj'
 old_version = 'MARKETING_VERSION = "2.5.1-13";'
-new_version = 'MARKETING_VERSION = "2.5.1-13+install-feedback.1";'
+new_version = 'MARKETING_VERSION = "2.5.1-13+install-feedback.2";'
 text = project.read_text()
 if text.count(old_version) != 3:
     raise SystemExit('Unexpected Sileo project versions: refusing an imprecise replacement.')
@@ -95,7 +95,7 @@ package = packages[0]
 def field(name):
     return subprocess.check_output(['dpkg-deb', '-f', str(package), name], text=True).strip()
 
-version = '2.5.1-13+install-feedback.1'
+version = '2.5.1-13+install-feedback.2'
 assert field('Package') == 'org.coolstar.sileo', 'Unexpected package ID'
 assert field('Architecture') == 'iphoneos-arm64e', 'Unexpected package architecture'
 assert field('Version') == version, 'Unexpected package version'

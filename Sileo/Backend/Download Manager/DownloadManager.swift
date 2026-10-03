@@ -164,6 +164,28 @@ final class DownloadManager {
             self.startMoreDownloads()
             return
         }
+
+        // Reuse only the canonical APT archive after verifying it against the
+        // current repository index, before starting any network or URL override.
+        if let archiveSize = verifiedCachedRepoPackageSize(package: package) {
+            guard download.session == self.currentDownloadSession else { return }
+
+            download.failureReason = nil
+            download.message = nil
+            download.started = true
+            download.progress = 1
+            download.success = true
+            download.completed = true
+            download.totalBytesWritten = archiveSize
+            download.totalBytesExpectedToWrite = archiveSize
+
+            self.viewController.updateDownloadStatus(download: download)
+
+            NSLog("SileoLog: startMoreDownloads (verified APT archive)")
+            self.currentDownloads -= 1
+            self.startMoreDownloads()
+            return
+        }
         
         guard let filename = package.filename, let repo = package.sourceRepo, let repoURL = URL(string: repo.rawURL) else {
             
@@ -357,6 +379,14 @@ final class DownloadManager {
         return encodedString
     }
     
+    private func aptArchiveURL(package: Package) -> URL {
+        let packageID = aptEncoded(string: package.package, isArch: false)
+        let version = aptEncoded(string: package.version, isArch: false)
+        let architecture = aptEncoded(string: package.architecture ?? "", isArch: true)
+
+        return URL(fileURLWithPath: "\(CommandPath.prefix)/var/cache/apt/archives/\(packageID)_\(version)_\(architecture).deb")
+    }
+
     private func verifyLocalPackage(package: Package) -> Bool {
         let packageID = aptEncoded(string: package.package, isArch: false)
         let version = aptEncoded(string: package.version, isArch: false)
@@ -377,20 +407,23 @@ final class DownloadManager {
         return true
     }
     
-    private func verifyRepoPackage(package: Package, fileURL: URL) throws -> Bool {
+    private func repoPackageHashes(package: Package) throws -> [(PackageHashType, String)] {
         let packageControl = package.rawControl
     
         let supportedHashTypes = PackageHashType.allCases.compactMap { type in packageControl[type.rawValue].map { (type, $0) } }
-        let packageContainsHashes = !supportedHashTypes.isEmpty
-        
-        guard packageContainsHashes else {
+
+        guard !supportedHashTypes.isEmpty else {
             throw Error.untrustedPackage(packageID: package.package)
         }
-        
+
+        return supportedHashTypes
+    }
+
+    private func verifyPackageHashes(fileURL: URL, hashes: [(PackageHashType, String)]) throws {
         var badHash = ""
         var badRefHash = ""
         
-        let packageIsValid = supportedHashTypes.allSatisfy {
+        let packageIsValid = hashes.allSatisfy {
             let hash = $1
             guard let refHash = fileURL.hash(ofType: $0.hashType) else { return false }
           
@@ -405,17 +438,10 @@ final class DownloadManager {
         guard packageIsValid else {
             throw Error.hashMismatch(packageHash: badHash, refHash: badRefHash)
         }
-        
-        #if !TARGET_SANDBOX && !targetEnvironment(simulator)
-        let packageID = aptEncoded(string: package.package, isArch: false)
-        let version = aptEncoded(string: package.version, isArch: false)
-        let architecture = aptEncoded(string: package.architecture ?? "", isArch: true)
-        
-        let destFileName = "\(CommandPath.prefix)/var/cache/apt/archives/\(packageID)_\(version)_\(architecture).deb"
-        let destURL = URL(fileURLWithPath: destFileName)
+    }
 
-        moveFileAsRoot(from: fileURL, to: destURL)
-
+    private func verifiedAPTArchiveSize(package: Package, fileURL: URL, hashes: [(PackageHashType, String)]) throws -> Int64 {
+        let destFileName = fileURL.path
         let attributes: [FileAttributeKey: Any]
         do {
             attributes = try FileManager.default.attributesOfItem(atPath: destFileName)
@@ -430,20 +456,55 @@ final class DownloadManager {
         guard attributes[.type] as? FileAttributeType == .typeRegular,
               let expectedSize = package.size.flatMap({ UInt64($0) }),
               let savedSize = attributes[.size] as? NSNumber,
-              savedSize.uint64Value == expectedSize else {
+              savedSize.uint64Value == expectedSize,
+              savedSize.uint64Value <= UInt64(Int64.max) else {
             throw NSError(domain: "Sileo.PackageCache", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Unable to save downloaded package to the APT archive cache at \(destFileName): file type or size does not match.",
                 NSFilePathErrorKey: destFileName
             ])
         }
-        // A failed move can leave a stale file with the same name. Verify the
-        // saved archive against the same hashes used for the download.
-        guard supportedHashTypes.allSatisfy({ destURL.hash(ofType: $0.0.hashType) == $0.1 }) else {
+        do {
+            try verifyPackageHashes(fileURL: fileURL, hashes: hashes)
+        } catch {
             throw NSError(domain: "Sileo.PackageCache", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Unable to verify the saved package in the APT archive cache at \(destFileName): archive is unreadable or its hash does not match.",
                 NSFilePathErrorKey: destFileName
             ])
         }
+
+        return savedSize.int64Value
+    }
+
+    private func verifiedCachedRepoPackageSize(package: Package) -> Int64? {
+        let filenameComponents = [package.package, package.version, package.architecture ?? ""]
+        guard filenameComponents.allSatisfy({ !$0.isEmpty && !$0.contains("/") && !$0.contains("\0") }) else {
+            return nil
+        }
+        let archiveURL = aptArchiveURL(package: package)
+        let archiveDirectory = URL(fileURLWithPath: "\(CommandPath.prefix)/var/cache/apt/archives", isDirectory: true)
+        guard archiveURL.deletingLastPathComponent().standardizedFileURL == archiveDirectory.standardizedFileURL else {
+            return nil
+        }
+        do {
+            let hashes = try repoPackageHashes(package: package)
+            return try verifiedAPTArchiveSize(package: package, fileURL: archiveURL, hashes: hashes)
+        } catch {
+            // Missing, unreadable, stale or untrusted cache files are misses.
+            return nil
+        }
+    }
+
+    private func verifyRepoPackage(package: Package, fileURL: URL) throws -> Bool {
+        let hashes = try repoPackageHashes(package: package)
+        try verifyPackageHashes(fileURL: fileURL, hashes: hashes)
+
+        #if !TARGET_SANDBOX && !targetEnvironment(simulator)
+        let destURL = aptArchiveURL(package: package)
+        moveFileAsRoot(from: fileURL, to: destURL)
+
+        // A failed move can leave a stale file with the same name. Verify the
+        // saved archive against the same size and hashes as a cache hit.
+        _ = try verifiedAPTArchiveSize(package: package, fileURL: destURL, hashes: hashes)
         #endif
         self.vars.cachedDownloadFiles.append(fileURL)
         return true

@@ -153,6 +153,7 @@ final public class EvanderDownloadDelegate: NSObject, URLSessionDownloadDelegate
             try FileManager.default.moveItem(at: location, to: destination)
         } catch {
             downloader.container.errorCallback?(downloader, 522, error, destination)
+            return
         }
 
         if let response = downloadTask.response,
