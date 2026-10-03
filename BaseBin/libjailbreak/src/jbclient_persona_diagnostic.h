@@ -43,7 +43,9 @@ extern "C" {
 
 /* Same-thread observation only. Both functions preserve errno and do no IPC.
  * copy: 1 = observed request, 0 = no request since clear, -1 = invalid buffer.
- * A caller can discover these optional functions with dlsym on older libraries.
+ * Only the image hosting the persona spawn wrapper exports these optional
+ * getters; other embedded client copies keep their getters private. A caller
+ * can discover them with dlsym, or report unavailable with older libraries.
  */
 void jbclient_persona_diagnostic_clear(void);
 int jbclient_persona_diagnostic_copy(jbclient_persona_diagnostic_v1 *out, uint32_t out_size);

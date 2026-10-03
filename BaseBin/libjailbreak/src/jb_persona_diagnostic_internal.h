@@ -9,6 +9,10 @@
 /* Request-local client snapshots are published on return, so a nested request
  * cannot corrupt the outer observation. Unrelated RPCs never publish anything.
  */
+/* Always local to the image containing the producer, so an identically named
+ * helper embedded in another dylib cannot publish into the wrong TLS record.
+ */
+__attribute__((visibility("hidden")))
 void jbclient_persona_diagnostic_publish(const jbclient_persona_diagnostic_v1 *record);
 
 /* A scope restores the previous thread's state after an existing handler. */

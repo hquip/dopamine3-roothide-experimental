@@ -46,6 +46,11 @@ jobs:
             --baseline-ref df13541c57756b723ab5072ee51ea12d26016a93 \
             --output-dir .port-build/tests/spawn-observation \
             2>&1 | tee .port-build/logs/spawn-observation-asan.log
+          python3 scripts/test_persona_diagnostic_modules.py \
+            --clang "$(xcrun --find clang)" \
+            --sysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            --output-dir .port-build/tests/persona-modules \
+            2>&1 | tee .port-build/logs/persona-observation-modules.log
 
       - name: Check source files and prepare the XPF port
         run: |

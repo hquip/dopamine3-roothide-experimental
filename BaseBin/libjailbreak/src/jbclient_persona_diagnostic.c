@@ -1,11 +1,17 @@
 #include "jb_persona_diagnostic_internal.h"
 #include <errno.h>
 
+#if defined(JBCLIENT_PERSONA_DIAGNOSTIC_EXPORT_OBSERVER) && JBCLIENT_PERSONA_DIAGNOSTIC_EXPORT_OBSERVER
+#define JBCLIENT_PERSONA_OBSERVER_VISIBILITY __attribute__((visibility("default")))
+#else
+#define JBCLIENT_PERSONA_OBSERVER_VISIBILITY __attribute__((visibility("hidden")))
+#endif
+
 /* No logging, locks, file operations, transport, or credential work. */
 static _Thread_local jbclient_persona_diagnostic_v1 clientObservation;
 static _Thread_local jbserver_persona_diagnostic_scope serverObservation;
 
-void jbclient_persona_diagnostic_clear(void)
+JBCLIENT_PERSONA_OBSERVER_VISIBILITY void jbclient_persona_diagnostic_clear(void)
 {
 	int savedErrno = errno;
 	clientObservation = (jbclient_persona_diagnostic_v1){
@@ -15,7 +21,7 @@ void jbclient_persona_diagnostic_clear(void)
 	errno = savedErrno;
 }
 
-int jbclient_persona_diagnostic_copy(jbclient_persona_diagnostic_v1 *out, uint32_t out_size)
+JBCLIENT_PERSONA_OBSERVER_VISIBILITY int jbclient_persona_diagnostic_copy(jbclient_persona_diagnostic_v1 *out, uint32_t out_size)
 {
 	int savedErrno = errno;
 	int result = -1;

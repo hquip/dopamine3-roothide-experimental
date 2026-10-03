@@ -418,7 +418,7 @@ def main() -> None:
         return
     command = [args.clang, "-std=gnu11", "-g", "-O1", "-Wall", "-Wextra", "-Werror",
                "-Wno-unused-function", "-Wno-sign-compare", "-I", str(ROOT / "BaseBin/libjailbreak/src"),
-               str(source_file), str(ROOT / "BaseBin/libjailbreak/src/jb_persona_diagnostic.c"),
+               str(source_file), str(ROOT / "BaseBin/libjailbreak/src/jbclient_persona_diagnostic.c"),
                "-o", str(binary)]
     if args.sysroot:
         command += ["-isysroot", args.sysroot]

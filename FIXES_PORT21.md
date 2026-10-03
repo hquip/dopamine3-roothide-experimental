@@ -15,6 +15,14 @@ preserve errno and perform no IPC. Sileo reads them immediately after an existin
 failed spawn and clearly marks absent/unsupported observations. Older consumers
 can ignore the extra reply field.
 
+Several binaries embed the client sources independently. The pure helper follows
+their `jbclient_*.c` source pattern and is explicitly included by the CLI target.
+Only systemhook, which owns the existing spawn wrapper, exports the optional
+clear/copy observers. Every client publisher binds to its own hidden function
+and TLS record, preventing a consumer from reading another module's record.
+Two actual shared libraries test both load orders, export lookup, local records,
+errno preservation and independent threads before the IPA is built.
+
 Inert tests extract production client/dispatcher code and link the actual pure
 observation helper. Results, errno and release counts are compared with port.20,
 including transport failures with invalid reply pointers, missing/malformed
