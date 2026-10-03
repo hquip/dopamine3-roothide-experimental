@@ -9,6 +9,154 @@
 import Foundation
 import Evander
 
+// BEGIN INSTALLATION PIPE IO HELPER
+// Ordinary POSIX I/O only. Sources are kept above every child output descriptor
+// so a later close action cannot close an output that was just duplicated.
+struct InstallationPipeSetupError: Error, CustomStringConvertible {
+    let stage: String
+    let code: Int32
+    let channel: String?
+    let actionIndex: Int?
+    let layout: String
+
+    var description: String {
+        let channelDetail = channel.map { ", channel=\($0)" } ?? ""
+        let actionDetail = actionIndex.map { ", action=\($0)" } ?? ""
+        return "\(stage)\(channelDetail)\(actionDetail): errno \(code) " +
+            "(\(String(cString: strerror(code)))); \(layout)"
+    }
+}
+
+final class InstallationPipeIO {
+    static let channelNames = ["stdout", "stderr", "status", "sileo"]
+    var fileActions: posix_spawn_file_actions_t?
+    private var actionsInitialized = false
+    private(set) var descriptors: [[Int32]] = []
+
+    var layout: String {
+        descriptors.enumerated().map { index, pair in
+            "\(Self.channelNames[index])=(read:\(pair[0]),write:\(pair[1]))"
+        }.joined(separator: ", ")
+    }
+
+    static func prepare(sileoDescriptor: Int32) throws -> InstallationPipeIO {
+        let io = InstallationPipeIO()
+        do {
+            try io.configure(sileoDescriptor: sileoDescriptor)
+            return io
+        } catch {
+            io.closeAllDescriptors()
+            io.destroyActions()
+            throw error
+        }
+    }
+
+    private func failure(_ stage: String, _ code: Int32,
+                         channel: Int? = nil, actionIndex: Int? = nil) -> InstallationPipeSetupError {
+        InstallationPipeSetupError(stage: stage, code: code,
+                                   channel: channel.map { Self.channelNames[$0] },
+                                   actionIndex: actionIndex, layout: layout)
+    }
+
+    private func configure(sileoDescriptor: Int32) throws {
+        for channel in 0..<Self.channelNames.count {
+            var pair: [Int32] = [-1, -1]
+            guard pipe(&pair) == 0 else {
+                throw failure("create pipe", errno, channel: channel)
+            }
+            descriptors.append(pair)
+        }
+
+        // All eight owned ends move out of 0...6 before any file actions are
+        // registered. CLOEXEC also prevents an untransferred source leaking.
+        for channel in descriptors.indices {
+            for endpoint in 0..<2 {
+                let descriptor = descriptors[channel][endpoint]
+                let replacement = fcntl(descriptor, F_DUPFD_CLOEXEC, 7)
+                guard replacement != -1 else {
+                    throw failure("relocate pipe endpoint \(endpoint)", errno, channel: channel)
+                }
+                close(descriptor)
+                descriptors[channel][endpoint] = replacement
+            }
+            let readDescriptor = descriptors[channel][0]
+            let flags = fcntl(readDescriptor, F_GETFL)
+            guard flags != -1 else {
+                throw failure("read pipe flags", errno, channel: channel)
+            }
+            guard fcntl(readDescriptor, F_SETFL, flags | O_NONBLOCK) != -1 else {
+                throw failure("set nonblocking pipe", errno, channel: channel)
+            }
+        }
+
+        let initializeStatus = posix_spawn_file_actions_init(&fileActions)
+        guard initializeStatus == 0 else {
+            throw failure("initialize file actions", initializeStatus)
+        }
+        actionsInitialized = true
+        var actionIndex = 0
+        for channel in descriptors.indices {
+            let status = posix_spawn_file_actions_addclose(&fileActions, descriptors[channel][0])
+            guard status == 0 else {
+                throw failure("add read-end close", status, channel: channel, actionIndex: actionIndex)
+            }
+            actionIndex += 1
+        }
+        let targets: [Int32] = [STDOUT_FILENO, STDERR_FILENO, 5, sileoDescriptor]
+        for channel in descriptors.indices {
+            let status = posix_spawn_file_actions_adddup2(&fileActions, descriptors[channel][1], targets[channel])
+            guard status == 0 else {
+                throw failure("add output duplication", status, channel: channel, actionIndex: actionIndex)
+            }
+            actionIndex += 1
+        }
+        for channel in descriptors.indices {
+            let status = posix_spawn_file_actions_addclose(&fileActions, descriptors[channel][1])
+            guard status == 0 else {
+                throw failure("add write-end close", status, channel: channel, actionIndex: actionIndex)
+            }
+            actionIndex += 1
+        }
+    }
+
+    func closeWriteEnds() {
+        for channel in descriptors.indices {
+            if descriptors[channel][1] >= 0 {
+                close(descriptors[channel][1])
+                descriptors[channel][1] = -1
+            }
+        }
+    }
+
+    // Dispatch read sources take ownership only after a successful spawn.
+    func releaseReadEnds() {
+        for channel in descriptors.indices { descriptors[channel][0] = -1 }
+    }
+
+    func closeAllDescriptors() {
+        for channel in descriptors.indices {
+            for endpoint in 0..<2 where descriptors[channel][endpoint] >= 0 {
+                close(descriptors[channel][endpoint])
+                descriptors[channel][endpoint] = -1
+            }
+        }
+    }
+
+    func destroyActions() {
+        if actionsInitialized {
+            posix_spawn_file_actions_destroy(&fileActions)
+            actionsInitialized = false
+            fileActions = nil
+        }
+    }
+
+    deinit {
+        closeAllDescriptors()
+        destroyActions()
+    }
+}
+// END INSTALLATION PIPE IO HELPER
+
 class APTWrapper {
     static let sileoFD = 6
     static let cydiaCompatFd = 6
@@ -270,41 +418,21 @@ class APTWrapper {
             let oldApps = APTWrapper.dictionaryOfScannedApps()
             let oldTweaks = APTWrapper.dictionaryOfScannedTweaks()
 
-            var pipestatusfd: [Int32] = [0, 0]
-            var pipestdout: [Int32] = [0, 0]
-            var pipestderr: [Int32] = [0, 0]
-            var pipesileo: [Int32] = [0, 0]
-
             let bufsiz = Int(BUFSIZ)
-
-            pipe(&pipestdout)
-            pipe(&pipestderr)
-            pipe(&pipestatusfd)
-            pipe(&pipesileo)
-
-            guard fcntl(pipestdout[0], F_SETFL, O_NONBLOCK) != -1,
-                  fcntl(pipestderr[0], F_SETFL, O_NONBLOCK) != -1,
-                  fcntl(pipestatusfd[0], F_SETFL, O_NONBLOCK) != -1,
-                  fcntl(pipesileo[0], F_SETFL, O_NONBLOCK) != -1
-            else {
-                fatalError("Unable to set attributes on pipe")
+            let pipeIO: InstallationPipeIO
+            do {
+                pipeIO = try InstallationPipeIO.prepare(sileoDescriptor: Int32(sileoFD))
+            } catch {
+                outputCallback("Unable to prepare installation I/O: \(error)\n", Int(STDERR_FILENO))
+                completionCallback(1 << 8, .back, false)
+                return
             }
-
-            var fileActions: posix_spawn_file_actions_t?
-            posix_spawn_file_actions_init(&fileActions)
-            defer { posix_spawn_file_actions_destroy(&fileActions) }
-            posix_spawn_file_actions_addclose(&fileActions, pipestdout[0])
-            posix_spawn_file_actions_addclose(&fileActions, pipestderr[0])
-            posix_spawn_file_actions_addclose(&fileActions, pipestatusfd[0])
-            posix_spawn_file_actions_addclose(&fileActions, pipesileo[0])
-            posix_spawn_file_actions_adddup2(&fileActions, pipestdout[1], STDOUT_FILENO)
-            posix_spawn_file_actions_adddup2(&fileActions, pipestderr[1], STDERR_FILENO)
-            posix_spawn_file_actions_adddup2(&fileActions, pipestatusfd[1], 5)
-            posix_spawn_file_actions_adddup2(&fileActions, pipesileo[1], Int32(sileoFD))
-            posix_spawn_file_actions_addclose(&fileActions, pipestdout[1])
-            posix_spawn_file_actions_addclose(&fileActions, pipestderr[1])
-            posix_spawn_file_actions_addclose(&fileActions, pipestatusfd[1])
-            posix_spawn_file_actions_addclose(&fileActions, pipesileo[1])
+            defer { pipeIO.destroyActions() }
+            let pipestdout = pipeIO.descriptors[0]
+            let pipestderr = pipeIO.descriptors[1]
+            let pipestatusfd = pipeIO.descriptors[2]
+            let pipesileo = pipeIO.descriptors[3]
+            outputCallback("Installation stage: I/O ready; \(pipeIO.layout); child outputs=1,2,5,6\n", debugFD)
         
             let command = arguments.first!
             if #available(iOS 13, *) { // >ios13?
@@ -339,31 +467,31 @@ class APTWrapper {
                 posix_spawnattr_set_persona_np(&attr, 99, UInt32(POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE));
                 posix_spawnattr_set_persona_uid_np(&attr, 0);
                 posix_spawnattr_set_persona_gid_np(&attr, 0);
-                spawnStatus = posix_spawn(&pid, command, &fileActions, &attr, argv + [nil], env + [nil])
+                spawnStatus = posix_spawn(&pid, command, &pipeIO.fileActions, &attr, argv + [nil], env + [nil])
             } else {
                 guard let giveMeRootPath = Bundle.main.path(forAuxiliaryExecutable: "giveMeRoot") else {
                     fatalError("Unable to find giveMeRoot")
                 }
-                spawnStatus = posix_spawn(&pid, giveMeRootPath, &fileActions, nil, argv + [nil], env + [nil])
+                spawnStatus = posix_spawn(&pid, giveMeRootPath, &pipeIO.fileActions, nil, argv + [nil], env + [nil])
             }
             
             NSLog("SileoLog: spawn2=\(arguments)")
-            outputCallback("Installation stage: command start returned status \(spawnStatus), pid \(pid)\n", debugFD)
+            if spawnStatus == 0 {
+                outputCallback("Installation stage: command start returned status 0, pid \(pid)\n", debugFD)
+            } else {
+                outputCallback("Installation stage: command start returned status \(spawnStatus); no valid child pid\n", debugFD)
+            }
             
             if spawnStatus != 0 {
-                for descriptor in pipestdout + pipestderr + pipestatusfd + pipesileo {
-                    close(descriptor)
-                }
+                pipeIO.closeAllDescriptors()
                 let errorDescription = String(cString: strerror(spawnStatus))
                 outputCallback("Unable to start installation command \(command): errno \(spawnStatus) (\(errorDescription))\n", Int(STDERR_FILENO))
                 completionCallback(1 << 8, .back, false)
                 return
             }
 
-            close(pipestdout[1])
-            close(pipestderr[1])
-            close(pipestatusfd[1])
-            close(pipesileo[1])
+            pipeIO.closeWriteEnds()
+            pipeIO.releaseReadEnds()
 
             let mutex = DispatchSemaphore(value: 0)
 
