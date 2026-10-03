@@ -1,0 +1,20 @@
+--- a/Alderis/ColorPickerInnerViewController.swift
++++ b/Alderis/ColorPickerInnerViewController.swift
+@@ -28,7 +28,7 @@
+ 	let configuration: ColorPickerConfiguration
+ 	var color: Color
+ 
+-	var tab: ColorPickerTab {
++	var selectedColorPickerTab: ColorPickerTab {
+ 		get { configuration.visibleTabs[currentTab] }
+ 		set { currentTab = configuration.visibleTabs.firstIndex(of: newValue) ?? 0 }
+ 	}
+@@ -286,7 +286,7 @@
+ 		])
+ 
+ 		colorDidChange()
+-		tab = configuration.initialTab
++		selectedColorPickerTab = configuration.initialTab
+ 		tabsView?.selectedSegmentIndex = currentTab
+ 	}
+ 

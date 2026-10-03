@@ -59,6 +59,11 @@ xcodebuild -resolvePackageDependencies -project Sileo.xcodeproj -scheme Sileo \
     -onlyUsePackageVersionsFromResolvedFile -derivedDataPath "${TMPDIR}sileo" \
     2>&1 | tee .sileo-build/logs/package-resolution.log
 
+# The locked Alderis dependency predates UIKit 18's UIViewController.tab property.
+# Keep its dependency revision and fix only the conflicting internal field name.
+python3 ci/apply_alderis_uikit18_compat.py "${TMPDIR}sileo/SourcePackages/checkouts/Alderis" \
+    > .sileo-build/logs/alderis-uikit18-compat.json
+
 make -f .sileo-build/Makefile package SILEO_PLATFORM=iphoneos-arm64e \
     DEBUG=0 ALL_BOOTSTRAPS=1 BETA=0 NIGHTLY=0 V=1 \
     TARGET_CODESIGN="$(command -v ldid)" DPKG_TYPE=xz

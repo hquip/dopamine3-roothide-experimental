@@ -189,7 +189,12 @@ class APTWrapper {
             try DependencyResolverAccelerator.shared.buildOperations(packages: (installs+installDeps).map({$0.package}))
         } catch {
             let fileError = error as NSError
-            outputCallback("Unable to prepare installation metadata at \(CommandPath.sileolists)/operations: \(fileError.domain) (\(fileError.code)): \(fileError.localizedDescription)\n", Int(STDERR_FILENO))
+            let failedPath = fileError.userInfo[NSFilePathErrorKey] as? String ?? "\(CommandPath.sileolists)/operations"
+            var errorDetail = "\(fileError.domain) (\(fileError.code)): \(fileError.localizedDescription)"
+            if let underlyingError = fileError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                errorDetail += " [underlying: \(underlyingError.domain) (\(underlyingError.code))]"
+            }
+            outputCallback("Unable to prepare installation metadata at \(failedPath): \(errorDetail)\n", Int(STDERR_FILENO))
             // Completion uses waitpid status, so encode a nonzero exit status.
             completionCallback(1 << 8, .back, false)
             return
@@ -256,9 +261,11 @@ class APTWrapper {
         #else
         DispatchQueue.global(qos: .default).async {
             
+            outputCallback("Installation stage: waiting for APT queue\n", debugFD)
             DownloadManager.aptQueue.sync {
                 // wait for all tasks in the current apt queue to be completed
             }
+            outputCallback("Installation stage: APT queue ready\n", debugFD)
             
             let oldApps = APTWrapper.dictionaryOfScannedApps()
             let oldTweaks = APTWrapper.dictionaryOfScannedTweaks()
@@ -341,6 +348,7 @@ class APTWrapper {
             }
             
             NSLog("SileoLog: spawn2=\(arguments)")
+            outputCallback("Installation stage: command start returned status \(spawnStatus), pid \(pid)\n", debugFD)
             
             if spawnStatus != 0 {
                 for descriptor in pipestdout + pipestderr + pipestatusfd + pipesileo {
