@@ -45,6 +45,7 @@ EXTRA_MOCK = r'''
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <sys/types.h>
 #include <pthread.h>
 #endif
 #define MACH_PORT_NULL 0
