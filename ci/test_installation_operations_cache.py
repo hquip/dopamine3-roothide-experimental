@@ -22,6 +22,7 @@ def main():
     if sys.platform != "darwin":
         raise SystemExit("This test requires macOS Swift Foundation; it does not substitute a mock filesystem.")
     swiftc = subprocess.check_output(["xcrun", "--find", "swiftc"], text=True).strip()
+    macos_sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
     with tempfile.TemporaryDirectory(prefix="sileo-operations-foundation-") as temporary:
         temporary = Path(temporary)
         helper_path = temporary / "InstallationOperationsCache.swift"
@@ -29,7 +30,7 @@ def main():
         executable = temporary / "operations-cache-test"
         helper_path.write_text("import Foundation\n" + helper, encoding="utf-8")
         tests_path.write_text(TESTS.read_text(encoding="utf-8"), encoding="utf-8")
-        subprocess.run([swiftc, "-warnings-as-errors", str(helper_path), str(tests_path),
+        subprocess.run([swiftc, "-sdk", macos_sdk, "-warnings-as-errors", str(helper_path), str(tests_path),
                         "-o", str(executable)], check=True)
         result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
         # The executable emits one JSON result with named, independently exercised cases.
