@@ -157,6 +157,115 @@ final class InstallationPipeIO {
 }
 // END INSTALLATION PIPE IO HELPER
 
+// BEGIN INSTALLATION SPAWN OBSERVATION HELPER
+// Read only the optional thread-local observation of the existing spawn call.
+// This API does not send a request, change the spawn result, or retry a command.
+final class InstallationSpawnObservation {
+    private typealias ClearFunction = @convention(c) () -> Void
+    private typealias CopyFunction = @convention(c)
+        (UnsafeMutablePointer<jbclient_persona_diagnostic_v1>?, UInt32) -> Int32
+
+    private let clearFunction: ClearFunction?
+    private let copyFunction: CopyFunction?
+
+    init() {
+        let previousErrno = errno
+        defer { errno = previousErrno }
+        // Darwin's dlfcn.h defines RTLD_DEFAULT as ((void *) -2).
+        let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)
+        if let clearSymbol = dlsym(defaultHandle, "jbclient_persona_diagnostic_clear"),
+           let copySymbol = dlsym(defaultHandle, "jbclient_persona_diagnostic_copy") {
+            clearFunction = unsafeBitCast(clearSymbol, to: ClearFunction.self)
+            copyFunction = unsafeBitCast(copySymbol, to: CopyFunction.self)
+        } else {
+            clearFunction = nil
+            copyFunction = nil
+        }
+    }
+
+    func clearBeforeSpawn() {
+        let previousErrno = errno
+        defer { errno = previousErrno }
+        clearFunction?()
+    }
+
+    // Called immediately after a failed posix_spawn, on that same thread.
+    func copyFailureDescription() -> String {
+        let previousErrno = errno
+        defer { errno = previousErrno }
+        guard let copyFunction = copyFunction else {
+            return "Installation start diagnostic: unavailable (optional observation API missing)\n"
+        }
+        guard MemoryLayout<jbclient_persona_diagnostic_v1>.size == 56,
+              MemoryLayout<jbclient_persona_diagnostic_v1>.alignment == 8 else {
+            return "Installation start diagnostic: unsupported local observation ABI\n"
+        }
+        var record = jbclient_persona_diagnostic_v1()
+        let recordSize = UInt32(MemoryLayout<jbclient_persona_diagnostic_v1>.size)
+        let copyResult = copyFunction(&record, recordSize)
+        if copyResult == 0 {
+            return "Installation start diagnostic: no observation recorded for this spawn\n"
+        }
+        guard copyResult == 1 else {
+            return "Installation start diagnostic: unavailable (observation copy failed)\n"
+        }
+        guard record.version == 1, record.size == 56 else {
+            return "Installation start diagnostic: unsupported observation ABI\n"
+        }
+        let flags = [record.request_observed, record.pipe_available, record.ipc_called,
+                     record.reply_present, record.reply_dictionary, record.result_valid,
+                     record.server_stage_valid]
+        guard flags.allSatisfy({ $0 <= 1 }) else {
+            return "Installation start diagnostic: unsupported observation flags\n"
+        }
+        guard record.request_observed == 1 else {
+            return "Installation start diagnostic: no observation recorded for this spawn\n"
+        }
+
+        let stage: String
+        if record.pipe_available == 0 {
+            stage = "pipe-unavailable"
+        } else if record.ipc_called == 0 {
+            stage = "ipc-not-called"
+        } else if record.ipc_result != 0 {
+            stage = "ipc-returned-error"
+        } else if record.reply_present == 0 {
+            stage = "reply-missing"
+        } else if record.reply_dictionary == 0 {
+            stage = "reply-type-invalid"
+        } else if record.result_valid == 0 {
+            stage = "result-invalid"
+        } else {
+            stage = "reply-result"
+        }
+        let ipcStatus = record.ipc_called == 1 ? String(record.ipc_result) : "unavailable"
+        let originalResult = record.result_valid == 1 ? String(record.original_result) : "unavailable"
+        let serverStage: String
+        if record.server_stage_valid == 0 {
+            serverStage = "unavailable"
+        } else {
+            // Exhaustive known wire values. Unknown versions remain observations,
+            // and never become a guessed permission or launch failure reason.
+            switch record.server_stage {
+            case 0: serverStage = "unknown"
+            case 1: serverStage = "entitlement-denied"
+            case 2: serverStage = "child-not-found"
+            case 3: serverStage = "child-path-failed"
+            case 4: serverStage = "existing-helper-failed"
+            case 5: serverStage = "completed"
+            default: serverStage = "unsupported"
+            }
+        }
+        return "Installation start diagnostic: stage=\(stage); " +
+            "pipe_available=\(record.pipe_available); ipc_called=\(record.ipc_called); " +
+            "ipc_status_valid=\(record.ipc_called); ipc_status=\(ipcStatus); " +
+            "reply_present=\(record.reply_present); reply_type_valid=\(record.reply_dictionary); " +
+            "result_valid=\(record.result_valid); original_result=\(originalResult); " +
+            "server_stage_valid=\(record.server_stage_valid); server_stage=\(serverStage)\n"
+    }
+}
+// END INSTALLATION SPAWN OBSERVATION HELPER
+
 class APTWrapper {
     static let sileoFD = 6
     static let cydiaCompatFd = 6
@@ -460,6 +569,8 @@ class APTWrapper {
             var pid: pid_t = 0
             
             let spawnStatus: Int32 
+            let spawnObservation = InstallationSpawnObservation()
+            let spawnFailureDescription: String?
             if #available(iOS 13, *) {
                 var attr: posix_spawnattr_t?
                 posix_spawnattr_init(&attr)
@@ -467,12 +578,16 @@ class APTWrapper {
                 posix_spawnattr_set_persona_np(&attr, 99, UInt32(POSIX_SPAWN_PERSONA_FLAGS_OVERRIDE));
                 posix_spawnattr_set_persona_uid_np(&attr, 0);
                 posix_spawnattr_set_persona_gid_np(&attr, 0);
+                spawnObservation.clearBeforeSpawn()
                 spawnStatus = posix_spawn(&pid, command, &pipeIO.fileActions, &attr, argv + [nil], env + [nil])
+                spawnFailureDescription = spawnStatus != 0 ? spawnObservation.copyFailureDescription() : nil
             } else {
                 guard let giveMeRootPath = Bundle.main.path(forAuxiliaryExecutable: "giveMeRoot") else {
                     fatalError("Unable to find giveMeRoot")
                 }
+                spawnObservation.clearBeforeSpawn()
                 spawnStatus = posix_spawn(&pid, giveMeRootPath, &pipeIO.fileActions, nil, argv + [nil], env + [nil])
+                spawnFailureDescription = spawnStatus != 0 ? spawnObservation.copyFailureDescription() : nil
             }
             
             NSLog("SileoLog: spawn2=\(arguments)")
@@ -486,6 +601,9 @@ class APTWrapper {
                 pipeIO.closeAllDescriptors()
                 let errorDescription = String(cString: strerror(spawnStatus))
                 outputCallback("Unable to start installation command \(command): errno \(spawnStatus) (\(errorDescription))\n", Int(STDERR_FILENO))
+                if let diagnostic = spawnFailureDescription {
+                    outputCallback(diagnostic, Int(STDERR_FILENO))
+                }
                 completionCallback(1 << 8, .back, false)
                 return
             }

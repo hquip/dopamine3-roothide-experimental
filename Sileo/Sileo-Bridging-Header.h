@@ -6,6 +6,7 @@
 #include <spawn.h>
 #import "dpkgversion.h"
 #import "decompression.h"
+#include "Backend/C Contrib/jbclient_persona_diagnostic.h"
 
 #if TARGET_OS_MACCATALYST
 #import "LaunchAsRoot.h"

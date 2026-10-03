@@ -30,6 +30,9 @@ python3 ci/test_installation_operations_cache.py \
 python3 ci/test_apt_pipe_actions.py \
     2>&1 | tee .sileo-build/logs/installation-pipe-actions-tests.log
 
+python3 ci/test_installation_spawn_observation.py \
+    2>&1 | tee .sileo-build/logs/installation-spawn-observation-tests.log
+
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -37,7 +40,7 @@ from pathlib import Path
 root = Path.cwd()
 project = root / 'Sileo.xcodeproj/project.pbxproj'
 old_version = 'MARKETING_VERSION = "2.5.1-13";'
-new_version = 'MARKETING_VERSION = "2.5.1-13+install-feedback.5";'
+new_version = 'MARKETING_VERSION = "2.5.1-13+install-feedback.6";'
 text = project.read_text()
 if text.count(old_version) != 3:
     raise SystemExit('Unexpected Sileo project versions: refusing an imprecise replacement.')
@@ -101,7 +104,7 @@ package = packages[0]
 def field(name):
     return subprocess.check_output(['dpkg-deb', '-f', str(package), name], text=True).strip()
 
-version = '2.5.1-13+install-feedback.5'
+version = '2.5.1-13+install-feedback.6'
 assert field('Package') == 'org.coolstar.sileo', 'Unexpected package ID'
 assert field('Architecture') == 'iphoneos-arm64e', 'Unexpected package architecture'
 assert field('Version') == version, 'Unexpected package version'
