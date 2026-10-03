@@ -16,6 +16,7 @@ enum InstallationOperationsCache {
                         expectedOwnerID: UInt32? = nil,
                         fileManager: FileManager = .default) throws -> URL {
         let parent = parent.standardizedFileURL
+        let cacheRoot = cacheRoot.standardizedFileURL
         let operations = parent.appendingPathComponent("operations", isDirectory: true).standardizedFileURL
 
         func reject(_ path: URL, _ reason: String) -> NSError {
@@ -27,10 +28,15 @@ enum InstallationOperationsCache {
               operations.deletingLastPathComponent().path == parent.path else {
             throw reject(operations, "Installation metadata must be a direct cache child.")
         }
-        let canonicalParent = parent.resolvingSymlinksInPath().standardizedFileURL.pathComponents
-        let canonicalRoot = cacheRoot.resolvingSymlinksInPath().standardizedFileURL.pathComponents
-        guard canonicalParent.starts(with: canonicalRoot) else {
-            throw reject(parent, "Installation metadata is outside the package cache root.")
+        guard parent.lastPathComponent == "sileolists",
+              parent.deletingLastPathComponent().path == cacheRoot.path else {
+            throw reject(parent, "Installation metadata must use the expected APT state cache directory.")
+        }
+        let canonicalParent = parent.resolvingSymlinksInPath().standardizedFileURL
+        let canonicalRoot = cacheRoot.resolvingSymlinksInPath().standardizedFileURL
+        let expectedCanonicalParent = canonicalRoot.appendingPathComponent("sileolists", isDirectory: true).standardizedFileURL
+        guard canonicalParent.path == expectedCanonicalParent.path else {
+            throw reject(parent, "Installation metadata is outside the APT state cache directory.")
         }
 
         // Require the existing, writable parent; never recreate or change ownership
@@ -158,14 +164,17 @@ class DependencyResolverAccelerator {
         let cacheRoot = FileManager.default.documentDirectory
         let expectedOwnerID: UInt32? = nil
         #elseif targetEnvironment(macCatalyst)
-        let cacheRoot = URL(fileURLWithPath: CommandPath.prefix)
+        let cacheRoot = URL(fileURLWithPath: CommandPath.prefix).appendingPathComponent("var/lib/apt", isDirectory: true)
         let expectedOwnerID: UInt32? = nil
         #else
         let cacheRoot = URL(fileURLWithPath: CommandPath.prefix.isEmpty ? "/" : CommandPath.prefix)
+            .appendingPathComponent("var/lib/apt", isDirectory: true)
         let expectedOwnerID: UInt32? = 501
         #endif
         // depResolverPrefix is already physical on RootHide, exactly as it is in
         // getDependencies. Mapping it through jbroot again duplicates the prefix.
+        // RootHide can keep var/lib/apt in its separate AppGroup var tree, so the
+        // trusted boundary is its existing APT state parent, not the Bundle root.
         let resolverPrefix = try InstallationOperationsCache.prepare(
             in: depResolverPrefix, within: cacheRoot, expectedOwnerID: expectedOwnerID)
         
