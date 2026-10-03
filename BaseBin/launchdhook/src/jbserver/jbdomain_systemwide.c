@@ -13,6 +13,7 @@
 #include <libjailbreak/primitives.h>
 #include <libjailbreak/codesign.h>
 #include <libjailbreak/txm.h>
+#include <libjailbreak/jb_persona_diagnostic_internal.h>
 
 #include <signal.h>
 #include <libjailbreak/roothider.h>
@@ -579,13 +580,20 @@ static int systemwide_persona_fix(audit_token_t *callerToken, int childPid, uid_
 		}
 	}
 
-	if (!hasPersonaMgmtEntitlement) return -1;
+	if (!hasPersonaMgmtEntitlement) {
+		jbserver_persona_diagnostic_set_stage(JB_PERSONA_DIAGNOSTIC_ENTITLEMENT_DENIED);
+		return -1;
+	}
 
 	uint64_t childProc = proc_find(childPid);
-	if (!childProc) return -1;
+	if (!childProc) {
+		jbserver_persona_diagnostic_set_stage(JB_PERSONA_DIAGNOSTIC_CHILD_NOT_FOUND);
+		return -1;
+	}
 
 	char childProcPath[4*MAXPATHLEN];
 	if (proc_pidpath(childPid, childProcPath, sizeof(childProcPath)) <= 0) {
+		jbserver_persona_diagnostic_set_stage(JB_PERSONA_DIAGNOSTIC_CHILD_PATH_FAILED);
 		return -1;
 	}
 
@@ -609,12 +617,14 @@ static int systemwide_persona_fix(audit_token_t *callerToken, int childPid, uid_
 		if (old_gid != gid) groups[0] = gid;
 		if (proc_ucred_update_content(childProc, childProcPath, uid, gid, uid, gid, groups) != 0) {
 			JBLogError("Persona credential helper failed for %d (%s): %d", childPid, childProcPath, errno);
+			jbserver_persona_diagnostic_set_stage(JB_PERSONA_DIAGNOSTIC_EXISTING_HELPER_FAILED);
 			return -1;
 		}
 	}
 	if (overwriteUid != -1) kwrite32(childProc + koffsetof(proc, svuid), uid);
 	if (overwriteGid != -1) kwrite32(childProc + koffsetof(proc, svgid), gid);
 
+	jbserver_persona_diagnostic_set_stage(JB_PERSONA_DIAGNOSTIC_COMPLETED);
 	return 0;
 }
 

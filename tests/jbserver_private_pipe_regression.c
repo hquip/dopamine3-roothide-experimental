@@ -95,6 +95,7 @@ static int counted_xpc_pipe_routine_reply(xpc_object_t reply)
 }
 
 /* Compile the production dispatcher into this test while counting replies. */
+#include "jb_persona_diagnostic.c"
 #define xpc_pipe_routine_reply counted_xpc_pipe_routine_reply
 #include "jbserver.c"
 #undef xpc_pipe_routine_reply

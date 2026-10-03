@@ -279,7 +279,20 @@ def fixture(ref: str | None = None) -> str:
         entries.append(f'{{"{name}", schema_{i}, sizeof(schema_{i})/sizeof(schema_{i}[0])}}')
     arrays.append("static const struct schema schemas[] = {" + ",\n".join(entries) + "};")
     dispatcher = re.sub(r'^#include[^\n]*\n', '', source(DISPATCHER, ref), flags=re.M)
-    return (MOCK.replace("@DECLARATIONS@", declarations())
+    # This test checks schemas/routing, not observation. Keep the production
+    # decoder and exact descriptors while replacing the passive scope with
+    # inert functions; a separate test links the real observation helper.
+    observation_stub = r'''
+#include "jb_persona_diagnostic_internal.h"
+#include "jbserver_domains.h"
+jbserver_persona_diagnostic_scope jbserver_persona_diagnostic_begin(void) {
+    return (jbserver_persona_diagnostic_scope){0};
+}
+uint64_t jbserver_persona_diagnostic_end(jbserver_persona_diagnostic_scope previous) {
+    (void)previous; return 0;
+}
+'''
+    return (observation_stub + MOCK.replace("@DECLARATIONS@", declarations())
             .replace("@DISPATCHER@", dispatcher).replace("@SCHEMAS@", "\n".join(arrays)))
 
 
@@ -302,7 +315,8 @@ def main() -> None:
         binary = args.output_dir / (name + (".exe" if os.name == "nt" else ""))
         cfile.write_text(fixture(ref), encoding="utf-8")
         command = [args.clang,"-std=gnu11","-g","-O1","-fsanitize=address",
-                   "-fno-omit-frame-pointer",str(cfile),"-o",str(binary)]
+                   "-fno-omit-frame-pointer", "-I", str(ROOT / "BaseBin/libjailbreak/src"),
+                   str(cfile),"-o",str(binary)]
         if args.sysroot:
             command += ["-isysroot", args.sysroot]
         subprocess.run(command, check=True, timeout=60)

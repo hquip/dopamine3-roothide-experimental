@@ -1,6 +1,7 @@
 #include "jbclient_xpc.h"
 #include "jbclient_mach.h"
 #include "jbserver.h"
+#include "jb_persona_diagnostic_internal.h"
 #include <dispatch/dispatch.h>
 #include <sys/stat.h>
 #include <sys/mount.h>
@@ -40,6 +41,26 @@ void jbclient_xpc_set_custom_port(mach_port_t serverPort)
 
 xpc_object_t jbserver_xpc_send_dict(xpc_object_t xdict)
 {
+	// Only an existing, correctly typed persona request is observed. Keep the
+	// snapshot on the stack across IPC; unrelated nested requests cannot erase it.
+	int diagnosticSavedErrno = errno;
+	bool observePersona = false;
+	if (xdict && xpc_get_type(xdict) == XPC_TYPE_DICTIONARY) {
+		xpc_object_t domainValue = xpc_dictionary_get_value(xdict, "jb-domain");
+		xpc_object_t actionValue = xpc_dictionary_get_value(xdict, "action");
+		observePersona = domainValue && xpc_get_type(domainValue) == XPC_TYPE_UINT64
+			&& xpc_uint64_get_value(domainValue) == JBS_DOMAIN_SYSTEMWIDE
+			&& actionValue && xpc_get_type(actionValue) == XPC_TYPE_UINT64
+			&& xpc_uint64_get_value(actionValue) == JBS_SYSTEMWIDE_PERSONA_FIX;
+	}
+	jbclient_persona_diagnostic_v1 diagnostic = {
+		.version = JBCLIENT_PERSONA_DIAGNOSTIC_VERSION,
+		.size = JBCLIENT_PERSONA_DIAGNOSTIC_SIZE,
+		.request_observed = 1,
+	};
+	if (observePersona) jbclient_persona_diagnostic_publish(&diagnostic);
+	errno = diagnosticSavedErrno;
+
 	xpc_object_t xreply = NULL;
 
 	xpc_object_t xpipe = NULL;
@@ -57,13 +78,47 @@ xpc_object_t jbserver_xpc_send_dict(xpc_object_t xdict)
 				globalData->xpc_bootstrap_pipe = xpc_pipe_create_from_port(globalData->task_bootstrap_port, 0);
 			}
 		}
-		if (!globalData->xpc_bootstrap_pipe) return NULL;
+		if (!globalData->xpc_bootstrap_pipe) {
+			if (observePersona) jbclient_persona_diagnostic_publish(&diagnostic);
+			return NULL;
+		}
 		xpipe = xpc_retain(globalData->xpc_bootstrap_pipe);
 	}
 
-	if (!xpipe) return NULL;
+	if (!xpipe) {
+		if (observePersona) jbclient_persona_diagnostic_publish(&diagnostic);
+		return NULL;
+	}
+	if (observePersona) {
+		diagnostic.pipe_available = 1;
+		diagnostic.ipc_called = 1;
+	}
 	int err = xpc_pipe_routine_with_flags(xpipe, xdict, &xreply, 0);
 	xpc_release(xpipe);
+	if (observePersona) {
+		diagnosticSavedErrno = errno;
+		diagnostic.ipc_result = err;
+		// The transport does not promise a valid reply object on failure. Do
+		// not inspect an error-path pointer that the original code never read.
+		if (err == 0) {
+			diagnostic.reply_present = xreply != NULL;
+			diagnostic.reply_dictionary = xreply && xpc_get_type(xreply) == XPC_TYPE_DICTIONARY;
+		}
+		if (diagnostic.reply_dictionary) {
+			xpc_object_t result = xpc_dictionary_get_value(xreply, "result");
+			if (result && xpc_get_type(result) == XPC_TYPE_INT64) {
+				diagnostic.result_valid = 1;
+				diagnostic.original_result = xpc_int64_get_value(result);
+			}
+			xpc_object_t stage = xpc_dictionary_get_value(xreply, JB_PERSONA_DIAGNOSTIC_REPLY_KEY);
+			if (stage && xpc_get_type(stage) == XPC_TYPE_UINT64) {
+				diagnostic.server_stage_valid = 1;
+				diagnostic.server_stage = xpc_uint64_get_value(stage);
+			}
+		}
+		jbclient_persona_diagnostic_publish(&diagnostic);
+		errno = diagnosticSavedErrno;
+	}
 	if (err != 0) {
 		return NULL;
 	}

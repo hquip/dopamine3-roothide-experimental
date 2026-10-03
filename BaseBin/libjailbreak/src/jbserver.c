@@ -3,6 +3,7 @@
 #include <errno.h>
 
 #include "roothider.h"
+#include "jb_persona_diagnostic_internal.h"
 
 int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xmsg)
 {
@@ -94,7 +95,16 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 		}
 	}
 
+	bool observePersona = domainIdx == JBS_DOMAIN_SYSTEMWIDE && actionIdx == JBS_SYSTEMWIDE_PERSONA_FIX;
+	jbserver_persona_diagnostic_scope previousObservation = { 0 };
+	if (observePersona) previousObservation = jbserver_persona_diagnostic_begin();
 	int result = handler(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+	if (observePersona) {
+		uint64_t stage = jbserver_persona_diagnostic_end(previousObservation);
+		int diagnosticSavedErrno = errno;
+		xpc_dictionary_set_uint64(xreply, JB_PERSONA_DIAGNOSTIC_REPLY_KEY, stage);
+		errno = diagnosticSavedErrno;
+	}
 
 	for (uint64_t i = 0; i < 8 && action->args[i].name; i++) {
 		jbserver_arg *argDesc = &action->args[i];

@@ -39,6 +39,13 @@ jobs:
             --baseline-ref 3bf9dba816913bcf21687bc44aa7dedb2ab25fdf \
             --output-dir .port-build/tests/schema \
             2>&1 | tee .port-build/logs/rpc-schema-asan.log
+          git fetch --no-tags --depth=1 origin df13541c57756b723ab5072ee51ea12d26016a93
+          python3 scripts/test_persona_diagnostic.py \
+            --clang "$(xcrun --find clang)" \
+            --sysroot "$(xcrun --sdk macosx --show-sdk-path)" \
+            --baseline-ref df13541c57756b723ab5072ee51ea12d26016a93 \
+            --output-dir .port-build/tests/spawn-observation \
+            2>&1 | tee .port-build/logs/spawn-observation-asan.log
 
       - name: Check source files and prepare the XPF port
         run: |
@@ -160,6 +167,7 @@ jobs:
             FIXES_PORT18.md
             FIXES_PORT19.md
             FIXES_PORT20.md
+            FIXES_PORT21.md
             .port-build/tests/schema/baseline-*.txt
           if-no-files-found: error
           include-hidden-files: true
